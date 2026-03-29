@@ -47,6 +47,8 @@ Generated files:
 
 ### Testing with the fixture
 
+A test fixture is included at `test_fixture/`, sourced from [tuist/tuist examples](https://github.com/tuist/tuist/tree/main/examples/xcode/generated_app_with_framework_and_tests). It contains an iOS app with a framework dependency and an app extension.
+
 ```bash
 cd test_fixture
 tuist graph -f json --no-open
