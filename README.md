@@ -1,70 +1,52 @@
 # tuist-to-bazel
 
-Converts a Tuist project graph into Bazel BUILD files. Reads the JSON output of `tuist graph` and generates `MODULE.bazel`, root `BUILD.bazel`, and per-target `BUILD.bazel` files with `swift_library` and `ios_build_test` rules.
+Generates Bazel BUILD files from a Tuist project graph. Parses `tuist graph -f json` output and produces `MODULE.bazel`, root `BUILD.bazel`, and per-target `BUILD.bazel` files with the correct `rules_apple`/`rules_swift` rules.
 
-## Prerequisites
+## Why
 
-- Ruby (any recent version, no gems required)
+Migrating an iOS project from Tuist to Bazel requires manually translating every target, dependency, and build setting into BUILD files. This tool automates the scaffolding - you get a buildable Bazel project from your existing Tuist graph in seconds.
+
+## What it does
+
+- Reads the XcodeGraph JSON format from `tuist graph`
+- Resolves internal targets, SPM packages, and local xcframeworks into Bazel labels
+- Generates `ios_application`, `ios_extension`, or `swift_library` rules per product type
+- Produces `MODULE.bazel` with pinned rule versions (rules_apple 4.5.2, rules_swift 3.5.0, rules_xcodeproj 4.0.0)
+- Generates root `BUILD.bazel` with `xcodeproj` and Gazelle integration (when SPM deps are present)
+- Skips test targets automatically
+
+## Requirements
+
+- Ruby (any recent version, no gems)
 - [Tuist](https://tuist.io) 4.169.2+
 - [Bazelisk](https://github.com/bazelbuild/bazelisk) (`brew install bazelisk`)
 
+## Quick start
+
+```bash
+cd your-tuist-project
+tuist graph -f json --no-open
+ruby /path/to/tuist-to-bazel/Sources/bazel.rb graph.json
+bazel build //...
+```
+
 ## Usage
 
-### 1. Generate the Tuist graph
-
 ```bash
-cd /path/to/your/tuist/project
-tuist graph -f json --no-open
+# Without SPM dependencies
+ruby Sources/bazel.rb graph.json
+
+# With SPM dependencies
+ruby Sources/bazel.rb graph.json Tuist/Package.swift
 ```
 
-This produces a `graph.json` file in the current directory.
-
-### 2. Run the tool
-
-```bash
-ruby /path/to/tuist-to-bazel/Sources/bazel.rb graph.json
-```
-
-If your project has SPM dependencies via `Tuist/Package.swift`:
-
-```bash
-ruby /path/to/tuist-to-bazel/Sources/bazel.rb graph.json Tuist/Package.swift
-```
-
-This generates:
-- `MODULE.bazel` - Bazel module with pinned rule versions
-- `BUILD.bazel` - Root build file with xcodeproj, gazelle, and schemes
-- `<Target>/BUILD.bazel` - Per-target build files with `swift_library` and `ios_build_test`
+Generated files:
+- `MODULE.bazel` - Bazel module with rule versions
+- `BUILD.bazel` - Root build file (xcodeproj, schemes, optional Gazelle)
+- `<Target>/BUILD.bazel` - Per-target build rules
 - `vendor/BUILD.bazel` - Local xcframework imports (if any)
 
-### 3. Build with Bazel
-
-```bash
-# Build everything
-bazel build //...
-
-# Build a specific target
-bazel build //App:App
-
-# Run the iOS build test
-bazel build //App:_App
-```
-
-### 4. Generate Xcode project (optional)
-
-```bash
-bazel run //:xcodeproj
-```
-
-### 5. Update SPM dependencies (optional)
-
-```bash
-bazel run //:update_swift_packages
-```
-
-## Testing with the fixture
-
-A test fixture from the Tuist repo is included at `test_fixture/`:
+### Testing with the fixture
 
 ```bash
 cd test_fixture
@@ -75,19 +57,38 @@ bazel build //...
 
 ## How it works
 
-1. Parses the XcodeGraph JSON format from `tuist graph -f json`
-2. Iterates over local (non-external) projects and their targets
-3. Skips test targets and SwiftLint targets
-4. Resolves three types of dependencies:
-   - Internal targets - mapped to Bazel labels (e.g., `//Framework:Framework`)
-   - SPM packages - mapped via `swift_deps_index.json` (e.g., `@swiftpkg_nuke//:Nuke`)
-   - Local xcframeworks - mapped to `apple_static_xcframework_import` rules
-5. Generates BUILD files with `swift_library` for each target
+1. Parses the dependency DAG and project structure from Tuist's XcodeGraph JSON
+2. Resolves dependencies into Bazel labels (internal targets, SPM packages via `swift_deps_index.json`, xcframeworks)
+3. Generates the appropriate Bazel rule per product type with correct dependency wiring
 
-## Post-generation manual fixes
+## Supported product types
 
-Bazel requires every dependency to be declared explicitly. You may need to manually fix:
+| Tuist product | Bazel rule | Status |
+|---|---|---|
+| `app` | `ios_application` + `swift_library` | Supported |
+| `app_extension` | `ios_extension` + `swift_library` | Supported |
+| `framework` / `staticFramework` | `swift_library` + `ios_build_test` | Supported |
+| `staticLibrary` / `dynamicLibrary` | `swift_library` + `ios_build_test` | Supported |
+| `unitTests` / `uiTests` | - | Skipped |
+| `appClip` | `ios_app_clip` | Not yet supported |
+| `watch2App` / `watch2Extension` | `watchos_application` / `watchos_extension` | Not yet supported |
+| `tvTopShelfExtension` | `tvos_extension` | Not yet supported |
+| `messagesExtension` | `ios_imessage_extension` | Not yet supported |
+| `stickerPackExtension` | `ios_sticker_pack_extension` | Not yet supported |
+| `extensionKitExtension` | `ios_extension` | Not yet supported |
+| `commandLineTool` | `swift_binary` | Not yet supported |
+| `bundle` / `macro` / `xpc` / `systemExtension` | - | Not yet supported |
 
-- Dependency renames for packages with conflicting names (e.g., Phrase/Adjust both using `ios_sdk`)
-- Additional MODULE.bazel entries for transitive dependencies
-- Vendor BUILD file adjustments for xcframeworks with non-standard paths
+Unsupported types fall back to `swift_library` + `ios_build_test`.
+
+## Limitations
+
+- Hardcoded minimum iOS version (17.0), scheme names, and project name
+- No Objective-C or mixed-language target support
+- SPM dependency resolution requires running `bazel run //:update_swift_packages` after generation
+- May require manual fixes for conflicting package names, transitive dependencies, or non-standard xcframework paths
+- Single-project graphs only (multi-project workspaces untested)
+
+## License
+
+MIT
