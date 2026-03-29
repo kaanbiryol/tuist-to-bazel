@@ -13,7 +13,6 @@ Migrating an iOS project from Tuist to Bazel requires manually translating every
 - Generates `ios_application`, `ios_extension`, or `swift_library` rules per product type
 - Produces `MODULE.bazel` with pinned rule versions (rules_apple 4.5.2, rules_swift 3.5.0, rules_xcodeproj 4.0.0)
 - Generates root `BUILD.bazel` with `xcodeproj` and Gazelle integration (when SPM deps are present)
-- Skips test targets automatically
 
 ## Requirements
 
@@ -83,6 +82,7 @@ Unsupported types fall back to `swift_library` + `ios_build_test`.
 
 ## Limitations
 
+- Test targets (`unitTests`, `uiTests`) are skipped - no `ios_unit_test`/`ios_ui_test` generation yet
 - Hardcoded minimum iOS version (17.0), scheme names, and project name
 - No Objective-C or mixed-language target support
 - SPM dependency resolution requires running `bazel run //:update_swift_packages` after generation
