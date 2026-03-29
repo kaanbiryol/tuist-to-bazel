@@ -13,7 +13,7 @@ def generate_build_file(all_targets, bzl_target, external_dependencies, tuist_sy
   
         ios_build_test(
             name = "_#{bzl_target.target_name}",
-            minimum_os_version = "16.0",
+            minimum_os_version = "17.0",
             targets = [":#{bzl_target.target_name}"]
         )
 
@@ -23,8 +23,10 @@ def generate_build_file(all_targets, bzl_target, external_dependencies, tuist_sy
             data = glob(
                 ["Resources/**"],
                 exclude = ["**/.DS_Store"],
+                allow_empty = True,
             ),
             module_name = "#{bzl_target.target_name}",
+            tags = ["manual"],
             deps = #{format_dependency_labels(all_dependencies)},
             alwayslink = True
         )

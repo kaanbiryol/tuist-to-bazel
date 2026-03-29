@@ -1,83 +1,93 @@
-## Install Bazelisk
+# tuist-to-bazel
 
-- `brew install bazelisk`
+Converts a Tuist project graph into Bazel BUILD files. Reads the JSON output of `tuist graph` and generates `MODULE.bazel`, root `BUILD.bazel`, and per-target `BUILD.bazel` files with `swift_library` and `ios_build_test` rules.
 
-## Generate tuist graph
+## Prerequisites
 
-- `tuist install` (make sure to have the latest dependencies)
-- `tuist graph -f json`
+- Ruby (any recent version, no gems required)
+- [Tuist](https://tuist.io) 4.169.2+
+- [Bazelisk](https://github.com/bazelbuild/bazelisk) (`brew install bazelisk`)
 
-## Move Package.swift
+## Usage
 
-`mv Tuist/Package.swift Package.swift`. This is required to generate files for third party libraries.
+### 1. Generate the Tuist graph
 
-## (Optional) update third party depenencies
-
-- `bazel run //:swift_update_pkgs`
-
-# Edit 
-
-Bazel requires every dependency to be declared explicitly to ensure hermetic builds. Since we don't have explicit dependencies in our Project.swift, you are going to have to manually fix the missing dependencies in the build graph.
-
-1. Change `swiftpkg_ios_sdk` for Phrase to `swiftpkg_phrase` in MODULE.bazel and swift_deps_index.json.
-
-2. Add   
+```bash
+cd /path/to/your/tuist/project
+tuist graph -f json --no-open
 ```
-"swiftpkg_swift_nio_ssl",
-"swiftpkg_adyen_networking_ios"
+
+This produces a `graph.json` file in the current directory.
+
+### 2. Run the tool
+
+```bash
+ruby /path/to/tuist-to-bazel/Sources/bazel.rb graph.json
 ```
-to MODULE.bazel
 
-3. Fix vendor/build.bazel
+If your project has SPM dependencies via `Tuist/Package.swift`:
 
+```bash
+ruby /path/to/tuist-to-bazel/Sources/bazel.rb graph.json Tuist/Package.swift
 ```
-    load("@build_bazel_rules_apple//apple:apple.bzl", "apple_static_xcframework_import")
 
-apple_static_xcframework_import(
-    name = "IncdOnboarding",
-    xcframework_imports = glob(["Incode/IncdOnboarding.xcframework/**"]),
-    visibility = ["//visibility:public"],
-)
+This generates:
+- `MODULE.bazel` - Bazel module with pinned rule versions
+- `BUILD.bazel` - Root build file with xcodeproj, gazelle, and schemes
+- `<Target>/BUILD.bazel` - Per-target build files with `swift_library` and `ios_build_test`
+- `vendor/BUILD.bazel` - Local xcframework imports (if any)
 
-apple_static_xcframework_import(
-    name = "opencv2",
-    xcframework_imports = glob(["Incode/opencv2.xcframework/**"]),
-    visibility = ["//visibility:public"],
-)
+### 3. Build with Bazel
 
-apple_static_xcframework_import(
-    name = "SXPayment",
-    xcframework_imports = glob(["SXPayment.xcframework/**"]),
-    visibility = ["//visibility:public"],
-)
+```bash
+# Build everything
+bazel build //...
 
-apple_static_xcframework_import(
-    name = "DBDebugToolkitSDK",
-    xcframework_imports = glob(["DBDebugToolkit.xcframework/**"]),
-    visibility = ["//visibility:public"],
-)
+# Build a specific target
+bazel build //App:App
 
-apple_static_xcframework_import(
-    name = "MarketingCloudSDK",
-    xcframework_imports = glob(["MarketingCloudSDK.xcframework/**"]),
-    visibility = ["//visibility:public"],
-)
+# Run the iOS build test
+bazel build //App:_App
 ```
-## Run the tool
 
-- `ruby tuist-to-bazel/bazel.rb graph.json swift_deps_index.json`
+### 4. Generate Xcode project (optional)
 
-## Edit the swift_deps_index.json for Phrase
+```bash
+bazel run //:xcodeproj
+```
 
- - Change `swiftpkg_ios_sdk` label to `swiftpkg_phrase` in necessary parts. (This is required because `rules_spm` resolves the name of the Git repository and Phrase and Adjust are both using `ios_sdk` as their repository name.) 
- - [ ] See if there is a way to set a name either in `Package.swift` or `rules_spm` for this. Otherwise, create an issue in `rules_spm`. 
+### 5. Update SPM dependencies (optional)
 
-## Generate Xcode project
+```bash
+bazel run //:update_swift_packages
+```
 
-- `bazel run //:xcodeproj`
+## Testing with the fixture
 
-## (Optional) build app
+A test fixture from the Tuist repo is included at `test_fixture/`:
 
-- `bazel build //apps/App/Sources:app --swiftcopt=-suppress-warnings`  
+```bash
+cd test_fixture
+tuist graph -f json --no-open
+ruby ../Sources/bazel.rb graph.json
+bazel build //...
+```
 
+## How it works
 
+1. Parses the XcodeGraph JSON format from `tuist graph -f json`
+2. Iterates over local (non-external) projects and their targets
+3. Skips test targets and SwiftLint targets
+4. Resolves three types of dependencies:
+   - Internal targets - mapped to Bazel labels (e.g., `//Framework:Framework`)
+   - SPM packages - mapped via `swift_deps_index.json` (e.g., `@swiftpkg_nuke//:Nuke`)
+   - Local xcframeworks - mapped to `apple_static_xcframework_import` rules
+5. Generates BUILD files with `swift_library` for each target
+
+## Post-generation manual fixes
+
+Bazel requires every dependency to be declared explicitly. You may need to manually fix:
+
+- Dependency renames for packages with conflicting names (e.g., Phrase/Adjust both using `ios_sdk`)
+- Additional MODULE.bazel entries for transitive dependencies
+- Vendor BUILD file adjustments for xcframeworks with non-standard paths

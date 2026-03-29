@@ -54,3 +54,11 @@ build-iPhoneSimulator/
 
 # Used by RuboCop. Remote config files pulled in from inherit_from directive.
 # .rubocop-https?--*
+
+# Generated Bazel files
+**/BUILD.bazel
+**/MODULE.bazel
+bazel-*
+
+# Tuist graph output
+graph.json

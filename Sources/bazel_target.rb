@@ -13,12 +13,11 @@ class BazelTarget
     end
 end
 
-# Generates BazelTarget from the "target" dictionary
-def bazel_target(target)
-    target_name = target["name"]
+# Generates BazelTarget from the new XcodeGraph format
+def bazel_target(target_name, target)
     type = target["product"]
-    absolute_path = absolute_path(target)
-    relative_path = relative_path(absolute_path)
+    abs_path = source_directory(target)
+    rel_path = abs_path ? relative_path(abs_path) : target_name
     dependencies = target["dependencies"] || []
-    return BazelTarget.new(absolute_path, relative_path, target_name, dependencies, type)
+    return BazelTarget.new(abs_path, rel_path, target_name, dependencies, type)
 end
