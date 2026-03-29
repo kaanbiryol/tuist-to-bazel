@@ -43,13 +43,15 @@ def generate_root_build_file(has_spm_deps: false)
             "xcschemes",
         )
         load("@rules_xcodeproj//xcodeproj:xcodeproj.bzl", "xcodeproj")
+
+        exports_files(glob(["*.plist"]))
         #{spm_loads}
         _SCHEMES = [
             xcschemes.scheme(
                 name = "App",
                 run = xcschemes.run(
-                    build_targets = ["//App:_App"],
-                    launch_target = "//App:_App",
+                    build_targets = ["//App:App"],
+                    launch_target = "//App:App",
                 ),
             ),
         ]
@@ -61,7 +63,7 @@ def generate_root_build_file(has_spm_deps: false)
             xcschemes = _SCHEMES,
             top_level_targets = [
                 top_level_target(
-                    "//App:_App",
+                    "//App:App",
                     target_environments = ["simulator"],
                 ),
             ],
