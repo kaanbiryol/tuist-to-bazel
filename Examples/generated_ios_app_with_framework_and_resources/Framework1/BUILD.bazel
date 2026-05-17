@@ -1,0 +1,36 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@build_bazel_rules_apple//apple:ios.bzl", "ios_framework")
+load("@build_bazel_rules_apple//apple:resources.bzl", "apple_bundle_import", "apple_resource_bundle", "apple_resource_group")
+
+package(default_visibility = ["//visibility:public"])
+
+apple_resource_group(
+    name = "_Framework1Resources",
+    resources = ["Resources/AnotherPlist.plist"] + ["Resources/framework_resource.txt"],
+    structured_resources = [],
+)
+
+swift_library(
+    name = "Framework1Lib",
+    srcs = [
+        "Sources/Framework1File.swift",
+    ],
+    data = [
+        ":_Framework1Resources",
+    ],
+    module_name = "Framework1",
+    tags = ["manual"],
+    deps = [],
+)
+
+ios_framework(
+    name = "Framework1",
+    bundle_id = "dev.tuist.Framework1",
+    families = ["iphone", "ipad"],
+    infoplists = [".bazel/InfoPlists/Framework1-Info.plist"],
+    minimum_os_version = "17.0",
+    deps = [":Framework1Lib"],
+    resources = [
+        ":_Framework1Resources",
+    ],
+)

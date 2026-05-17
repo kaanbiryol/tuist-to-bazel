@@ -1,0 +1,36 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@build_bazel_rules_apple//apple:ios.bzl", "ios_static_framework")
+load("@build_bazel_rules_apple//apple:resources.bzl", "apple_bundle_import", "apple_resource_bundle", "apple_resource_group")
+
+package(default_visibility = ["//visibility:public"])
+
+apple_resource_group(
+    name = "_StaticFramework4Resources",
+    resources = ["Resources/StaticFramework4Resources-text.txt"] + ["Resources/StaticFramework4Resources-tuist.png"],
+    structured_resources = [],
+)
+
+swift_library(
+    name = "StaticFramework4Lib",
+    srcs = [
+        ".bazel/Generated/StaticFramework4ResourceAccessors.swift",
+        "Sources/ResourcesStaticFramework4.swift",
+    ],
+    data = [
+        ":_StaticFramework4Resources",
+    ],
+    module_name = "StaticFramework4",
+    tags = ["manual"],
+    deps = [],
+)
+
+ios_static_framework(
+    name = "StaticFramework4",
+    minimum_os_version = "17.0",
+    deps = [
+        ":StaticFramework4Lib",
+    ],
+    resources = [
+        ":_StaticFramework4Resources",
+    ],
+)

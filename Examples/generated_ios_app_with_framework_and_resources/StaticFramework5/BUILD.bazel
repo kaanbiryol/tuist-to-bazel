@@ -1,0 +1,40 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@build_bazel_rules_apple//apple:ios.bzl", "ios_static_framework")
+load("@build_bazel_rules_apple//apple:resources.bzl", "apple_bundle_import", "apple_resource_bundle", "apple_resource_group")
+
+package(default_visibility = ["//visibility:public"])
+
+apple_bundle_import(
+    name = "_StaticFramework5_Resources_images_bundle",
+    bundle_imports = glob(["Resources/images.bundle/**"]),
+)
+
+apple_resource_group(
+    name = "_StaticFramework5Resources",
+    resources = [":_StaticFramework5_Resources_images_bundle"] + ["Resources/Property List.plist"] + ["Resources/en.lproj/Localizable.strings"] + glob(["Resources/assets.xcassets/**"]),
+    structured_resources = [],
+)
+
+swift_library(
+    name = "StaticFramework5Lib",
+    srcs = [
+        ".bazel/Generated/StaticFramework5ResourceAccessors.swift",
+    ],
+    data = [
+        ":_StaticFramework5Resources",
+    ],
+    module_name = "StaticFramework5",
+    tags = ["manual"],
+    deps = [],
+)
+
+ios_static_framework(
+    name = "StaticFramework5",
+    minimum_os_version = "17.0",
+    deps = [
+        ":StaticFramework5Lib",
+    ],
+    resources = [
+        ":_StaticFramework5Resources",
+    ],
+)

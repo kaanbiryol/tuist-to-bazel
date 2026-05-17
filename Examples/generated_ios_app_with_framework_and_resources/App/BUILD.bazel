@@ -1,0 +1,79 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@build_bazel_rules_apple//apple:ios.bzl", "ios_application", "ios_unit_test")
+load("@build_bazel_rules_apple//apple:resources.bzl", "apple_bundle_import", "apple_resource_bundle", "apple_resource_group")
+
+package(default_visibility = ["//visibility:public"])
+
+apple_resource_group(
+    name = "_AppResources",
+    resources = ["ODRResources/odr_image.png"] + ["ODRResources/odr_text.txt"] + ["Resources/AnotherPlist.plist"] + ["Resources/Environment.plist"] + ["Resources/Folder.DotName/resource.txt"] + ["Resources/Fonts/SF-Pro-Display-Bold.otf"] + ["Resources/Fonts/SF-Pro-Display-BoldItalic.otf"] + ["Resources/Fonts/SF-Pro-Display-Heavy.otf"] + ["Resources/en.lproj/App.strings"] + ["Resources/en.lproj/App.stringsdict"] + ["Resources/en.lproj/Greetings.strings"] + ["Resources/fr.lproj/App.strings"] + ["Resources/fr.lproj/App.stringsdict"] + ["Resources/fr.lproj/Greetings.strings"] + ["Resources/resource_without_extension"] + ["Resources/tuist.png"] + glob(["Resources/Assets.xcassets/**"]),
+    structured_resources = glob(["Examples/**"]) + glob(["ODRExamples/**"]),
+)
+
+swift_library(
+    name = "AppLib",
+    srcs = [
+        ".bazel/Generated/AppResourceAccessors.swift",
+        "Sources/AppDelegate.swift",
+    ],
+    copts = [
+        "-enable-testing",
+    ],
+    data = [
+        ":_AppResources",
+    ],
+    module_name = "App",
+    tags = ["manual"],
+    deps = [
+        "//Framework1:Framework1Lib",
+        "//StaticFramework2:StaticFramework2Lib",
+        "//StaticFramework3:StaticFramework3Lib",
+        "//StaticFramework4:StaticFramework4Lib",
+        "//StaticFramework5:StaticFramework5Lib",
+        "//StaticFramework:StaticFrameworkLib",
+    ],
+)
+
+ios_application(
+    name = "App",
+    bundle_id = "dev.tuist.App",
+    families = ["iphone", "ipad"],
+    infoplists = [".bazel/InfoPlists/App-Info.plist"],
+    minimum_os_version = "17.0",
+    deps = [":AppLib"],
+    frameworks = [
+        "//Framework1:Framework1",
+    ],
+    resources = [
+        "//StaticFramework5:_StaticFramework5Resources",
+        "//StaticFramework:StaticFrameworkResources",
+        ":_AppResources",
+    ],
+)
+
+swift_library(
+    name = "AppTestsLib",
+    srcs = [
+        "Tests/AppDelegateTests.swift",
+    ],
+    always_include_developer_search_paths = True,
+    copts = [
+        "-enable-testing",
+    ],
+    module_name = "AppTests",
+    tags = ["manual"],
+    testonly = True,
+    deps = [
+        ":AppLib",
+    ],
+)
+
+ios_unit_test(
+    name = "AppTests",
+    bundle_id = "dev.tuist.AppTests",
+    infoplists = ["Config/AppTests-Info.plist"],
+    minimum_os_version = "17.0",
+    deps = [":AppTestsLib"],
+    test_host = ":App",
+    test_host_is_bundle_loader = True,
+)

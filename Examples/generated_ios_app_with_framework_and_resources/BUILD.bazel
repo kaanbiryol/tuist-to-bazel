@@ -1,0 +1,17 @@
+load(
+    "@rules_xcodeproj//xcodeproj:defs.bzl",
+    "top_level_target",
+)
+load("@rules_xcodeproj//xcodeproj:xcodeproj.bzl", "xcodeproj")
+
+xcodeproj(
+    name = "xcodeproj",
+    project_name = "Workspace",
+    scheme_autogeneration_mode = "all",
+    top_level_targets = [
+        top_level_target(
+            "//App:App",
+            target_environments = ["simulator"],
+        ),
+    ],
+)

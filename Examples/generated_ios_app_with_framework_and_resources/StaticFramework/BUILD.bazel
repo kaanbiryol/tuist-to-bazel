@@ -1,0 +1,30 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@build_bazel_rules_apple//apple:ios.bzl", "ios_static_framework")
+load("@build_bazel_rules_apple//apple:resources.bzl", "apple_bundle_import", "apple_resource_bundle", "apple_resource_group")
+
+package(default_visibility = ["//visibility:public"])
+
+swift_library(
+    name = "StaticFrameworkLib",
+    srcs = [
+        "Sources/StaticFrameworkResouces.swift",
+    ],
+    module_name = "StaticFramework",
+    tags = ["manual"],
+    deps = [],
+)
+
+ios_static_framework(
+    name = "StaticFramework",
+    minimum_os_version = "17.0",
+    deps = [
+        ":StaticFrameworkLib",
+    ],
+)
+
+apple_resource_bundle(
+    name = "StaticFrameworkResources",
+    bundle_id = "dev.tuist.StaticFrameworkResources",
+    resources = ["Resources/tuist-bundle.png"],
+    structured_resources = [],
+)

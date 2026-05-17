@@ -1,0 +1,36 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@build_bazel_rules_apple//apple:ios.bzl", "ios_static_framework")
+load("@build_bazel_rules_apple//apple:resources.bzl", "apple_bundle_import", "apple_resource_bundle", "apple_resource_group")
+
+package(default_visibility = ["//visibility:public"])
+
+apple_resource_group(
+    name = "_StaticFramework3Resources",
+    resources = ["Resources/StaticFramework3Resources-text.txt"] + ["Resources/StaticFramework3Resources-tuist.png"] + glob(["Resources/Assets.xcassets/**"]),
+    structured_resources = [],
+)
+
+swift_library(
+    name = "StaticFramework3Lib",
+    srcs = [
+        ".bazel/Generated/StaticFramework3ResourceAccessors.swift",
+        "Sources/ResourcesStaticFramework3.swift",
+    ],
+    data = [
+        ":_StaticFramework3Resources",
+    ],
+    module_name = "StaticFramework3",
+    tags = ["manual"],
+    deps = [],
+)
+
+ios_static_framework(
+    name = "StaticFramework3",
+    minimum_os_version = "17.0",
+    deps = [
+        ":StaticFramework3Lib",
+    ],
+    resources = [
+        ":_StaticFramework3Resources",
+    ],
+)

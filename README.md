@@ -1,95 +1,86 @@
 # tuist-to-bazel
 
-Generates Bazel BUILD files from a Tuist project graph. Parses `tuist graph -f json` output and produces `MODULE.bazel`, root `BUILD.bazel`, and per-target `BUILD.bazel` files with the correct `rules_apple`/`rules_swift` rules.
+`tuist-to-bazel` is a Swift command line tool that converts a Tuist graph JSON into Bazel module and BUILD files.
 
-## Why
-
-Migrating an iOS project from Tuist to Bazel requires manually translating every target, dependency, and build setting into BUILD files. This tool automates the scaffolding - you get a buildable Bazel project from your existing Tuist graph in seconds.
-
-## What it does
-
-- Reads the XcodeGraph JSON format from `tuist graph`
-- Resolves internal targets, SPM packages, and local xcframeworks into Bazel labels
-- Generates `ios_application`, `ios_extension`, or `swift_library` rules per product type
-- Produces `MODULE.bazel` with pinned rule versions (rules_apple 4.5.2, rules_swift 3.5.0, rules_xcodeproj 4.0.0)
-- Generates root `BUILD.bazel` with `xcodeproj` and Gazelle integration (when SPM deps are present)
+The converter intentionally decodes Tuist's graph with narrow local DTOs instead of depending on Tuist/XcodeGraph internals. The input contract is the JSON produced by `tuist graph`; the output is ordinary Bazel files that can be inspected, edited, and built directly.
 
 ## Requirements
 
-- Ruby (any recent version, no gems)
+- Swift 5.10+ / Xcode
 - [Tuist](https://tuist.io) 4.169.2+
-- [Bazelisk](https://github.com/bazelbuild/bazelisk) (`brew install bazelisk`)
+- [Bazelisk](https://github.com/bazelbuild/bazelisk)
 
-## Quick start
-
-```bash
-cd your-tuist-project
-tuist graph -f json --no-open
-ruby /path/to/tuist-to-bazel/Sources/bazel.rb graph.json
-bazel build //...
-```
-
-## Usage
+## Quick Start
 
 ```bash
-# Without SPM dependencies
-ruby Sources/bazel.rb graph.json
+cd /path/to/tuist/project
+tuist graph -f json --no-open --output-path /tmp/tuist-graph
 
-# With SPM dependencies
-ruby Sources/bazel.rb graph.json Tuist/Package.swift
+swift run --package-path /path/to/tuist-to-bazel tuist-to-bazel convert \
+  --graph /tmp/tuist-graph/graph.json \
+  --root /path/to/tuist/project \
+  --output /path/to/tuist/project \
+  --force
+
+bazelisk build //...
 ```
 
-Generated files:
-- `MODULE.bazel` - Bazel module with rule versions
-- `BUILD.bazel` - Root build file (xcodeproj, schemes, optional Gazelle)
-- `<Target>/BUILD.bazel` - Per-target build rules
-- `vendor/BUILD.bazel` - Local xcframework imports (if any)
+The CLI writes:
 
-### Testing with the fixture
+- `MODULE.bazel`
+- root `BUILD.bazel` with a `rules_xcodeproj` target
+- per-package `BUILD.bazel` files
+- generated support sources under `.bazel/Generated`
+- sanitized generated plist copies under `.bazel/InfoPlists` when needed
 
-A test fixture is included at `test_fixture/`, sourced from [tuist/tuist examples](https://github.com/tuist/tuist/tree/main/examples/xcode/generated_app_with_framework_and_tests). It contains an iOS app with a framework dependency and an app extension.
+## Showcase Fixture
+
+The main example is checked in at `Examples/generated_ios_app_with_framework_and_resources`. It is copied from Tuist's `examples/xcode/generated_ios_app_with_framework_and_resources` fixture and converted into a Bazel-compatible project.
+
+It covers a fuller Tuist graph than the original small fixture:
+
+- an iOS app and hosted iOS unit test target
+- a dynamic framework
+- static frameworks
+- resource bundle targets
+- direct framework resources
+- asset catalogs, localized strings, string dictionaries, plists, fonts, folder references, and `.bundle` imports
+- Tuist-style synthesized resource accessors generated as Swift support sources
+
+Useful verification commands:
 
 ```bash
-cd test_fixture
-tuist graph -f json --no-open
-ruby ../Sources/bazel.rb graph.json
-bazel build //...
+swift test
+cd Examples/generated_ios_app_with_framework_and_resources
+bazelisk query //...
+bazelisk build //...
 ```
 
-## How it works
+`bazelisk test //App:AppTests` currently builds the test bundle but the local simulator runner exits with status 15 in this environment immediately after creating the simulator, before XCTest output is produced.
 
-1. Parses the dependency DAG and project structure from Tuist's XcodeGraph JSON
-2. Resolves dependencies into Bazel labels (internal targets, SPM packages via `swift_deps_index.json`, xcframeworks)
-3. Generates the appropriate Bazel rule per product type with correct dependency wiring
+## Supported Generation
 
-## Supported product types
+| Tuist product | Bazel output |
+|---|---|
+| `app` | `swift_library` + `ios_application` |
+| `appExtension` / `app_extension` | `swift_library` + `ios_extension` |
+| `framework` | `swift_library` + `ios_framework` |
+| `staticFramework` / `static_framework` | `swift_library` + `ios_static_framework` |
+| `bundle` | `apple_resource_bundle` |
+| `unitTests` / `unit_tests` | `swift_library` + `ios_unit_test` |
+| `staticLibrary` / `dynamicLibrary` | `swift_library` |
 
-| Tuist product | Bazel rule | Status |
-|---|---|---|
-| `app` | `ios_application` + `swift_library` | Supported |
-| `app_extension` | `ios_extension` + `swift_library` | Supported |
-| `framework` / `staticFramework` | `swift_library` + `ios_build_test` | Supported |
-| `staticLibrary` / `dynamicLibrary` | `swift_library` + `ios_build_test` | Supported |
-| `unitTests` / `uiTests` | - | Skipped |
-| `appClip` | `ios_app_clip` | Not yet supported |
-| `watch2App` / `watch2Extension` | `watchos_application` / `watchos_extension` | Not yet supported |
-| `tvTopShelfExtension` | `tvos_extension` | Not yet supported |
-| `messagesExtension` | `ios_imessage_extension` | Not yet supported |
-| `stickerPackExtension` | `ios_sticker_pack_extension` | Not yet supported |
-| `extensionKitExtension` | `ios_extension` | Not yet supported |
-| `commandLineTool` | `swift_binary` | Not yet supported |
-| `bundle` / `macro` / `xpc` / `systemExtension` | - | Not yet supported |
+Resource handling includes `apple_resource_group`, `apple_bundle_import` for checked-in `.bundle` directories, generated `Bundle.module` bridges, and narrow Tuist-style accessors for assets, strings, string dictionaries, plists, and fonts.
 
-Unsupported types fall back to `swift_library` + `ios_build_test`.
+## Current Limits
 
-## Limitations
-
-- Test targets (`unitTests`, `uiTests`) are skipped - no `ios_unit_test`/`ios_ui_test` generation yet
-- Hardcoded minimum iOS version (17.0), scheme names, and project name
-- No Objective-C or mixed-language target support
-- SPM dependency resolution requires running `bazel run //:update_swift_packages` after generation
-- May require manual fixes for conflicting package names, transitive dependencies, or non-standard xcframework paths
-- Single-project graphs only (multi-project workspaces untested)
+- The graph DTOs cover only the fields needed for Bazel generation.
+- External package, SDK, framework, xcframework, and library dependencies are decoded but not fully generated yet.
+- ODR resource tags are reported as warnings and are not represented in Bazel output.
+- Resource accessor synthesis is intentionally narrow and aimed at common Tuist-generated symbols.
+- The generated minimum iOS version is currently `17.0`.
+- UI test target generation is decoded but not implemented.
+- Objective-C, C, mixed-language targets, build settings, scripts, and custom Tuist build rules are not modeled yet.
 
 ## License
 
