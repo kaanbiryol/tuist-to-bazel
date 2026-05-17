@@ -2,7 +2,13 @@
 
 A workspace with an application that includes resources.
 
-This fixture is copied from `tuist/tuist` at commit `2be1eb0076143ebc60e86fff7b5c334c0808baa3` and checked in here as the primary Bazel conversion showcase.
+This fixture is sourced from `tuist/tuist` at the commit recorded in `.upstream.json` and checked in here as the primary Bazel conversion showcase. Refresh it from the repo root with:
+
+```bash
+scripts/update-tuist-fixtures.sh
+```
+
+The `SF-Pro-Display-*.otf` files are lightweight placeholders. The converter only needs those resource filenames to generate the font accessors used by this showcase.
 
 ```
 Workspace:

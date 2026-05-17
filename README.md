@@ -35,7 +35,15 @@ The CLI writes:
 
 ## Showcase Fixture
 
-The main example is checked in at `Examples/generated_ios_app_with_framework_and_resources`. It is copied from Tuist's `examples/xcode/generated_ios_app_with_framework_and_resources` fixture and converted into a Bazel-compatible project.
+The main example is checked in at `Examples/generated_ios_app_with_framework_and_resources`. It is sourced from Tuist's `examples/xcode/generated_ios_app_with_framework_and_resources` fixture at the commit recorded in `.upstream.json`, then converted into a Bazel-compatible project.
+
+Refresh the checked-in Tuist fixtures with:
+
+```bash
+scripts/update-tuist-fixtures.sh
+```
+
+Set `TUIST_COMMIT=<sha>` to refresh from a different Tuist revision. The script preserves generated Bazel output in the showcase fixture and regenerates it when `tuist` is available locally.
 
 It covers a fuller Tuist graph than the original small fixture:
 
@@ -57,6 +65,8 @@ bazelisk build //...
 ```
 
 `bazelisk test //App:AppTests` currently builds the test bundle but the local simulator runner exits with status 15 in this environment immediately after creating the simulator, before XCTest output is produced.
+
+The smaller legacy Tuist fixture now lives under `Tests/Fixtures/TuistProjects/generated_app_with_framework_and_tests`.
 
 ## Supported Generation
 

@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/tuist/tuist",
+  "commit": "2be1eb0076143ebc60e86fff7b5c334c0808baa3",
+  "sourcePath": "examples/xcode/generated_ios_app_with_framework_and_resources",
+  "generatedBazelOutput": true,
+  "refreshScript": "scripts/update-tuist-fixtures.sh",
+  "notes": [
+    "Generated Bazel files are committed next to the Tuist fixture files.",
+    "The SF-Pro-Display font files are filename-only placeholders because tuist-to-bazel derives accessors from resource filenames."
+  ]
+}
