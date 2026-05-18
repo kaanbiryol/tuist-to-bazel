@@ -4,5 +4,7 @@
   "sourcePath": "examples/xcode/generated_visionos_app",
   "generatedBazelOutput": false,
   "refreshScript": "scripts/update-tuist-fixtures.sh",
-  "notes": []
+  "notes": [
+    "Sources/AppDelegate.swift is patched locally to avoid Xcode 26 UIScreen availability failure for visionOS."
+  ]
 }

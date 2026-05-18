@@ -150,6 +150,25 @@ replace_font_payloads() {
   done
 }
 
+patch_visionos_fixture_for_current_sdk() {
+  local fixture_dir="$1"
+  local source_file="$fixture_dir/Sources/AppDelegate.swift"
+
+  [[ -f "$source_file" ]] || return 0
+
+  "$python_bin" - "$source_file" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+content = path.read_text()
+content = content.replace(
+    "window = UIWindow(frame: UIScreen.main.bounds)",
+    "window = UIWindow(frame: .zero)",
+)
+path.write_text(content)
+PY
+}
 sync_corpus() {
   local rows_file="$tmp_dir/corpus-fixtures.tsv"
   local names_file="$tmp_dir/corpus-fixture-names.txt"
@@ -181,7 +200,14 @@ sync_corpus() {
       "$source/" "$destination/"
 
     replace_font_payloads "$destination"
-    write_metadata "$destination" "$source_path" "false"
+    local notes='[]'
+    if [[ "$name" == "generated_visionos_app" ]]; then
+      patch_visionos_fixture_for_current_sdk "$destination"
+      notes='[
+    "Sources/AppDelegate.swift is patched locally to avoid Xcode 26 UIScreen availability failure for visionOS."
+  ]'
+    fi
+    write_metadata "$destination" "$source_path" "false" "$notes"
   done < "$rows_file"
 
   find "$corpus_destination" -mindepth 1 -maxdepth 1 -type d | while IFS= read -r fixture_dir; do

@@ -156,6 +156,60 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rendered[".bazel/InfoPlists/TopShelfExtension-Info.plist"]?.contains("com.apple.tv-top-shelf") == true)
     }
 
+    func testGeneratesVisionOSAppAndUnitTestRules() throws {
+        let root = URL(fileURLWithPath: "/tmp/VisionFixture")
+        let graph = TuistGraph(
+            name: "VisionFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            destinations: ["appleVision"],
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: root.appendingPathComponent("Support/Info.plist").path,
+                            sources: [root.appendingPathComponent("Sources/AppDelegate.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "AppTests",
+                            product: .unitTests,
+                            destinations: ["appleVision"],
+                            bundleId: "dev.tuist.AppTests",
+                            productName: "AppTests",
+                            projectPath: root.path,
+                            infoPlistPath: root.appendingPathComponent("Support/Tests.plist").path,
+                            sources: [root.appendingPathComponent("Tests/AppTests.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "App")]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:visionos.bzl\", \"visionos_application\", \"visionos_unit_test\")"))
+        XCTAssertTrue(rootBuild.contains("visionos_application("))
+        XCTAssertTrue(rootBuild.contains("families = [\"vision\"]"))
+        XCTAssertTrue(rootBuild.contains("minimum_os_version = \"1.0\""))
+        XCTAssertTrue(rootBuild.contains("visionos_unit_test("))
+        XCTAssertTrue(rootBuild.contains("test_host = \":App\""))
+        XCTAssertTrue(rootBuild.contains("tags = [\"manual\"]"))
+        XCTAssertTrue(rootBuild.contains("target_environments = [\"simulator\"]"))
+        XCTAssertFalse(rootBuild.contains("ios_application("))
+        XCTAssertFalse(rootBuild.contains("ios_unit_test("))
+    }
+
     func testGeneratesSwiftCompilerPluginsForMacroTargets() throws {
         let root = URL(fileURLWithPath: "/tmp/MacroFixture")
         let graph = TuistGraph(

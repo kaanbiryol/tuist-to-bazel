@@ -324,8 +324,17 @@
       "upstreamTuistPath": "examples/xcode/generated_visionos_app",
       "category": "conformance",
       "featureTags": ["visionos", "app", "unit-tests"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["visionOS product coverage is not automated yet"]
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [
+        "fixture AppDelegate is patched locally to avoid Xcode 26 UIScreen visionOS availability failure",
+        "visionOS XCTest target is generated as manual because rules_apple 4.5.2 fails during analysis for visionos_unit_test"
+      ],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //..."
+      ]
     },
     {
       "name": "generated_macos_app_with_extensions",

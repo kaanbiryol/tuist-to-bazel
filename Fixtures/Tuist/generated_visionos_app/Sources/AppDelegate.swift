@@ -8,7 +8,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        window = UIWindow(frame: UIScreen.main.bounds)
+        window = UIWindow(frame: .zero)
         let viewController = UIViewController()
         viewController.view.backgroundColor = .white
         window?.rootViewController = viewController

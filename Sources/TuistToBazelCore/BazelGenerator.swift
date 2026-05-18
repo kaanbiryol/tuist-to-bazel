@@ -533,6 +533,7 @@ struct BazelGenerator {
         var macOSRules: Set<String> = []
         var tvOSRules: Set<String> = []
         var watchOSRules: Set<String> = []
+        var visionOSRules: Set<String> = []
         var swiftRules: Set<String> = []
         var needsMixedLanguage = false
         var needsObjC = false
@@ -559,6 +560,8 @@ struct BazelGenerator {
                     tvOSRules.insert("tvos_application")
                 case .watchOS:
                     watchOSRules.insert("watchos_application")
+                case .visionOS:
+                    visionOSRules.insert("visionos_application")
                 case .ios, .macOS:
                     iosRules.insert("ios_application")
                 }
@@ -572,6 +575,8 @@ struct BazelGenerator {
                     tvOSRules.insert("tvos_extension")
                 case .watchOS:
                     watchOSRules.insert("watchos_extension")
+                case .visionOS:
+                    break
                 }
             case .extensionKitExtension:
                 switch platform(for: target) {
@@ -583,6 +588,8 @@ struct BazelGenerator {
                     tvOSRules.insert("tvos_extension")
                 case .watchOS:
                     watchOSRules.insert("watchos_extension")
+                case .visionOS:
+                    break
                 }
             case .framework:
                 switch platform(for: target) {
@@ -594,6 +601,8 @@ struct BazelGenerator {
                     tvOSRules.insert("tvos_framework")
                 case .watchOS:
                     watchOSRules.insert("watchos_framework")
+                case .visionOS:
+                    visionOSRules.insert("visionos_framework")
                 }
             case .messagesExtension:
                 iosRules.insert("ios_imessage_extension")
@@ -615,6 +624,8 @@ struct BazelGenerator {
                     tvOSRules.insert("tvos_unit_test")
                 case .watchOS:
                     watchOSRules.insert("watchos_unit_test")
+                case .visionOS:
+                    visionOSRules.insert("visionos_unit_test")
                 }
             case .uiTests:
                 iosRules.insert("ios_ui_test")
@@ -676,6 +687,10 @@ struct BazelGenerator {
         if !watchOSRules.isEmpty {
             let ruleNames = watchOSRules.sorted().map(Starlark.quote).joined(separator: ", ")
             loads.append("load(\"@build_bazel_rules_apple//apple:watchos.bzl\", \(ruleNames))")
+        }
+        if !visionOSRules.isEmpty {
+            let ruleNames = visionOSRules.sorted().map(Starlark.quote).joined(separator: ", ")
+            loads.append("load(\"@build_bazel_rules_apple//apple:visionos.bzl\", \(ruleNames))")
         }
         if needsResources {
             loads.append("load(\"@build_bazel_rules_apple//apple:resources.bzl\", \"apple_bundle_import\", \"apple_resource_bundle\", \"apple_resource_group\")")
@@ -857,6 +872,9 @@ struct BazelGenerator {
         case .watchOS:
             ruleName = "watchos_application"
             families = ""
+        case .visionOS:
+            ruleName = "visionos_application"
+            families = "    families = [\"vision\"],\n"
         case .ios, .macOS:
             ruleName = "ios_application"
             families = "    families = [\"iphone\", \"ipad\"],\n"
@@ -888,6 +906,9 @@ struct BazelGenerator {
             ruleName = "tvos_extension"
         case .watchOS:
             ruleName = "watchos_extension"
+        case .visionOS:
+            warnings.append("visionOS extension target \(target.name) is decoded but not generated yet")
+            return "# \(target.name) skipped: visionOS extension generation is not implemented yet"
         }
         return try renderExtensionRule(
             target,
@@ -986,6 +1007,9 @@ struct BazelGenerator {
                 ruleName = "tvos_extension"
             case .watchOS:
                 ruleName = "watchos_extension"
+            case .visionOS:
+                warnings.append("visionOS extension target \(target.name) is decoded but not generated yet")
+                return "# \(consumer.wrapperName) skipped: visionOS extension generation is not implemented yet"
             }
             return renderExtensionBundleRule(
                 target,
@@ -1138,6 +1162,8 @@ struct BazelGenerator {
             return try renderTVOSFramework(target, packagePath: packagePath)
         case .watchOS:
             return try renderWatchOSFramework(target, packagePath: packagePath)
+        case .visionOS:
+            return try renderVisionOSFramework(target, packagePath: packagePath)
         }
     }
 
@@ -1223,6 +1249,27 @@ struct BazelGenerator {
             .replacingOccurrences(of: ")\n \n", with: ")\n")
     }
 
+    private mutating func renderVisionOSFramework(_ target: TuistTarget, packagePath: String) throws -> String {
+        let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = ApplePlatform.visionOS
+        let libraryBlock = try frameworkLibraryBlockIfNeeded(target, packagePath: packagePath, deps: deps)
+        let productDeps = hasSwiftLibrary(for: target) ? "    deps = [\":\(libraryName(for: target))\"],\n" : ""
+        return [
+            try renderResourceGroupIfNeeded(target, packagePath: packagePath),
+            libraryBlock,
+            """
+            visionos_framework(
+                name = "\(target.name)",
+            \(bundleNameAttribute(target, indent: 4))    bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+                families = ["vision"],
+            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
+            \(productDeps)\(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))
+            \(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
+            """
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
+            .replacingOccurrences(of: ")\n \n", with: ")\n")
+    }
+
     private mutating func frameworkLibraryBlockIfNeeded(
         _ target: TuistTarget,
         packagePath: String,
@@ -1257,6 +1304,8 @@ struct BazelGenerator {
             return "\(prefix)families = [\"tv\"],\n"
         case .watchOS:
             return "\(prefix)families = [\"watch\"],\n"
+        case .visionOS:
+            return "\(prefix)families = [\"vision\"],\n"
         case .macOS:
             return ""
         }
@@ -1311,12 +1360,18 @@ struct BazelGenerator {
             ruleName = "tvos_unit_test"
         case .watchOS:
             ruleName = "watchos_unit_test"
+        case .visionOS:
+            ruleName = "visionos_unit_test"
         }
         var lines = [
             "\(ruleName)(",
             "    name = \"\(target.name)\",",
             "    bundle_id = \"\(target.bundleId ?? defaultBundleId(for: target))\",",
         ]
+        if platform == .visionOS {
+            warnings.append("visionOS unit test target \(target.name) is generated as manual because rules_apple 4.5.2 fails during analysis")
+            lines.append("    tags = [\"manual\"],")
+        }
         if let infoPlistPath = target.infoPlistPath,
            let relative = try? paths.pathRelativeToPackage(infoPlistPath, packagePath: packagePath) {
             lines.append("    infoplists = [\(Starlark.quote(relative))],")
@@ -2098,12 +2153,16 @@ struct BazelGenerator {
         case macOS
         case tvOS
         case watchOS
+        case visionOS
     }
 
     private func platform(for target: TuistTarget) -> ApplePlatform {
         let destinations = Set(target.destinations)
         if destinations.contains("appleWatch") {
             return .watchOS
+        }
+        if destinations.contains("appleVision") {
+            return .visionOS
         }
         if destinations.contains("appleTv") {
             return .tvOS
@@ -2123,6 +2182,8 @@ struct BazelGenerator {
             "14.0"
         case .watchOS:
             "9.0"
+        case .visionOS:
+            "1.0"
         }
     }
 
