@@ -2,6 +2,7 @@ import Foundation
 
 struct SwiftPackageManifest {
     let packagePath: String
+    let remotePackages: [TuistRemoteSwiftPackage]
     let products: [SwiftPackageProduct]
     let targets: [SwiftPackageTarget]
 }
@@ -15,6 +16,7 @@ struct SwiftPackageTarget {
     let name: String
     let sources: [String]
     let dependencies: [String]
+    let packageDependencies: [String]
 }
 
 struct SwiftPackageManifestParser {
@@ -27,19 +29,22 @@ struct SwiftPackageManifestParser {
 
         let sourceTargetNames = try sourceTargetNames(in: packageURL)
         let declaredTargets = parseDeclaredTargets(in: manifest)
+        let packageProductDependencies = parsePackageProductDependencies(in: manifest)
         let targetNames = orderedUnique(declaredTargets.map(\.name) + sourceTargetNames)
         let declaredByName = Dictionary(uniqueKeysWithValues: declaredTargets.map { ($0.name, $0) })
         let targets = try targetNames.map { name in
             SwiftPackageTarget(
                 name: name,
                 sources: try sourceFiles(for: name, in: packageURL),
-                dependencies: declaredByName[name]?.dependencies ?? []
+                dependencies: declaredByName[name]?.dependencies ?? [],
+                packageDependencies: declaredByName[name]?.packageDependencies ?? (targetNames.count == 1 ? packageProductDependencies : [])
             )
         }
 
         let products = parseLibraryProducts(in: manifest)
         return SwiftPackageManifest(
             packagePath: packagePath,
+            remotePackages: parseRemotePackages(in: manifest),
             products: products.isEmpty ? targets.map { SwiftPackageProduct(name: $0.name, targets: [$0.name]) } : products,
             targets: targets
         )
@@ -65,9 +70,41 @@ struct SwiftPackageManifestParser {
                 name: name,
                 sources: [],
                 dependencies: firstCapture(pattern: #"dependencies:\s*\[([^\]]*)\]"#, in: body)
-                    .map(quotedStrings(in:)) ?? []
+                    .map(quotedStrings(in:)) ?? [],
+                packageDependencies: parsePackageProductDependencies(in: body)
             )
         }
+    }
+
+    private func parseRemotePackages(in manifest: String) -> [TuistRemoteSwiftPackage] {
+        var packages: [TuistRemoteSwiftPackage] = []
+        packages += capturePairs(
+            pattern: #"\.package\s*\(\s*url:\s*"([^"]+)"\s*,\s*from:\s*"([^"]+)""#,
+            in: manifest
+        ).map { TuistRemoteSwiftPackage(url: $0.0, requirement: .upToNextMajor($0.1)) }
+        packages += capturePairs(
+            pattern: #"\.package\s*\(\s*url:\s*"([^"]+)"\s*,\s*\.upToNextMajor\s*\(\s*from:\s*"([^"]+)""#,
+            in: manifest
+        ).map { TuistRemoteSwiftPackage(url: $0.0, requirement: .upToNextMajor($0.1)) }
+        packages += capturePairs(
+            pattern: #"\.package\s*\(\s*url:\s*"([^"]+)"\s*,\s*\.upToNextMinor\s*\(\s*from:\s*"([^"]+)""#,
+            in: manifest
+        ).map { TuistRemoteSwiftPackage(url: $0.0, requirement: .upToNextMinor($0.1)) }
+        packages += capturePairs(
+            pattern: #"\.package\s*\(\s*url:\s*"([^"]+)"\s*,\s*\.exact\s*\(\s*"([^"]+)""#,
+            in: manifest
+        ).map { TuistRemoteSwiftPackage(url: $0.0, requirement: .exact($0.1)) }
+        packages += capturePairs(
+            pattern: #"\.package\s*\(\s*url:\s*"([^"]+)"\s*,\s*\.revision\s*\(\s*"([^"]+)""#,
+            in: manifest
+        ).map { TuistRemoteSwiftPackage(url: $0.0, requirement: .revision($0.1)) }
+        return orderedUnique(packages)
+    }
+
+    private func parsePackageProductDependencies(in value: String) -> [String] {
+        orderedUnique(
+            captures(pattern: #"\.product\s*\(\s*name:\s*"([^"]+)""#, in: value)
+        )
     }
 
     private func sourceTargetNames(in packageURL: URL) throws -> [String] {
@@ -126,12 +163,27 @@ struct SwiftPackageManifestParser {
         }
     }
 
+    private func capturePairs(pattern: String, in value: String) -> [(String, String)] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
+            return []
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return regex.matches(in: value, range: range).compactMap { match in
+            guard match.numberOfRanges > 2,
+                  let firstRange = Range(match.range(at: 1), in: value),
+                  let secondRange = Range(match.range(at: 2), in: value) else {
+                return nil
+            }
+            return (String(value[firstRange]), String(value[secondRange]))
+        }
+    }
+
     private func quotedStrings(in value: String) -> [String] {
         captures(pattern: #""([^"]+)""#, in: value)
     }
 
-    private func orderedUnique(_ values: [String]) -> [String] {
-        var seen: Set<String> = []
+    private func orderedUnique<T: Hashable>(_ values: [T]) -> [T] {
+        var seen: Set<T> = []
         return values.filter { seen.insert($0).inserted }
     }
 }

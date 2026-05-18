@@ -30,13 +30,20 @@ struct BazelGenerator {
         try renderRemoteSwiftPackageSupportFiles()
         var files: [String: String] = [:]
         files["MODULE.bazel"] = renderModule()
-        files["BUILD.bazel"] = try renderRootBuild()
+        let rootXcodeproj = try renderRootXcodeproj()
 
         let targetsByPackage = try Dictionary(grouping: graph.projects.flatMap(\.targets)) { target in
             try paths.packagePath(for: target.projectPath)
         }
 
+        files["BUILD.bazel"] = try renderPackageBuild(
+            packagePath: "",
+            targets: targetsByPackage[""] ?? [],
+            extraLoads: rootXcodeproj.loads,
+            extraBlocks: [rootXcodeproj.block]
+        )
         for packagePath in targetsByPackage.keys.sorted() {
+            guard !packagePath.isEmpty else { continue }
             files[pathForBuildFile(packagePath)] = try renderPackageBuild(
                 packagePath: packagePath,
                 targets: targetsByPackage[packagePath] ?? []
@@ -141,7 +148,7 @@ struct BazelGenerator {
 
     private mutating func indexRemoteSwiftPackages() throws {
         remoteSwiftPackageRepositories = orderedUnique(
-            graph.remoteSwiftPackages.map { remoteSwiftPackageRepositoryName(for: $0.url) }
+            allRemoteSwiftPackages().map { remoteSwiftPackageRepositoryName(for: $0.url) }
         ).sorted()
 
         let packageDependencyProducts = graph.projects
@@ -153,22 +160,25 @@ struct BazelGenerator {
                 }
                 return product
             }
+        let localPackageDependencyProducts = localSwiftPackageManifests.values
+            .flatMap(\.targets)
+            .flatMap(\.packageDependencies)
 
-        guard graph.remoteSwiftPackages.count == 1,
+        guard allRemoteSwiftPackages().count == 1,
               let repository = remoteSwiftPackageRepositories.first else {
-            if graph.remoteSwiftPackages.count > 1 {
+            if allRemoteSwiftPackages().count > 1 {
                 warnings.append("remote Swift package products are not generated because product-to-package mapping is ambiguous")
             }
             return
         }
 
-        for product in packageDependencyProducts where localSwiftPackageProductLabels[product] == nil {
+        for product in orderedUnique(packageDependencyProducts + localPackageDependencyProducts) where localSwiftPackageProductLabels[product] == nil {
             remoteSwiftPackageProductLabels[product] = BazelLabel(package: "@\(repository)", name: product)
         }
     }
 
     private mutating func renderRemoteSwiftPackageSupportFiles() throws {
-        guard !graph.remoteSwiftPackages.isEmpty else {
+        guard !allRemoteSwiftPackages().isEmpty else {
             return
         }
 
@@ -241,7 +251,7 @@ struct BazelGenerator {
     }
 
     private func renderRemoteSwiftPackageManifest() -> String {
-        let dependencies = graph.remoteSwiftPackages
+        let dependencies = allRemoteSwiftPackages()
             .sorted { $0.url < $1.url }
             .map { remotePackage in
                 "        .package(url: \(Starlark.quote(remotePackage.url)), \(remotePackage.requirement.packageDescriptionExpression)),"
@@ -267,6 +277,9 @@ struct BazelGenerator {
             paths.root.appendingPathComponent(".package.resolved"),
             paths.root.appendingPathComponent("Tuist/Package.resolved"),
         ].first { fileManager.fileExists(atPath: $0.path) }
+            ?? localSwiftPackageManifests.values
+                .map { URL(fileURLWithPath: $0.packagePath).appendingPathComponent("Package.resolved") }
+                .first { fileManager.fileExists(atPath: $0.path) }
     }
 
     private func normalizedPackageResolved(_ content: String) throws -> String {
@@ -319,24 +332,35 @@ struct BazelGenerator {
         sanitizedModuleName(value.lowercased())
     }
 
-    private mutating func renderRootBuild() throws -> String {
+    private func allRemoteSwiftPackages() -> [TuistRemoteSwiftPackage] {
+        var seen: Set<TuistRemoteSwiftPackage> = []
+        return (graph.remoteSwiftPackages + localSwiftPackageManifests.values.flatMap(\.remotePackages))
+            .filter { seen.insert($0).inserted }
+    }
+
+    private func orderedUnique<T: Hashable>(_ values: [T]) -> [T] {
+        var seen: Set<T> = []
+        return values.filter { seen.insert($0).inserted }
+    }
+
+    private mutating func renderRootXcodeproj() throws -> (loads: [String], block: String) {
         let apps = graph.projects.flatMap(\.targets).filter { $0.product == .app }.sorted { $0.name < $1.name }
         guard !apps.isEmpty else {
             warnings.append("no app target found; root xcodeproj target list is empty")
-            return """
-            load(
-                "@rules_xcodeproj//xcodeproj:defs.bzl",
-                "top_level_target",
+            return (
+                loads: [
+                    "load(\"@rules_xcodeproj//xcodeproj:defs.bzl\", \"top_level_target\")",
+                    "load(\"@rules_xcodeproj//xcodeproj:xcodeproj.bzl\", \"xcodeproj\")",
+                ],
+                block: """
+                xcodeproj(
+                    name = "xcodeproj",
+                    project_name = "\(sanitizedModuleName(graph.name))",
+                    scheme_autogeneration_mode = "all",
+                    top_level_targets = [],
+                )
+                """
             )
-            load("@rules_xcodeproj//xcodeproj:xcodeproj.bzl", "xcodeproj")
-
-            xcodeproj(
-                name = "xcodeproj",
-                project_name = "\(sanitizedModuleName(graph.name))",
-                scheme_autogeneration_mode = "all",
-                top_level_targets = [],
-            )
-            """
         }
 
         let topLevelTargets = try apps.map { app in
@@ -347,27 +371,32 @@ struct BazelGenerator {
                     )
             """
         }.joined(separator: ",\n")
-        return """
-        load(
-            "@rules_xcodeproj//xcodeproj:defs.bzl",
-            "top_level_target",
-        )
-        load("@rules_xcodeproj//xcodeproj:xcodeproj.bzl", "xcodeproj")
-
-        xcodeproj(
-            name = "xcodeproj",
-            project_name = "\(sanitizedModuleName(graph.name))",
-            scheme_autogeneration_mode = "all",
-            top_level_targets = [
-        \(topLevelTargets),
+        return (
+            loads: [
+                "load(\"@rules_xcodeproj//xcodeproj:defs.bzl\", \"top_level_target\")",
+                "load(\"@rules_xcodeproj//xcodeproj:xcodeproj.bzl\", \"xcodeproj\")",
             ],
+            block: """
+            xcodeproj(
+                name = "xcodeproj",
+                project_name = "\(sanitizedModuleName(graph.name))",
+                scheme_autogeneration_mode = "all",
+                top_level_targets = [
+            \(topLevelTargets),
+                ],
+            )
+            """
         )
-        """
     }
 
-    private mutating func renderPackageBuild(packagePath: String, targets: [TuistTarget]) throws -> String {
+    private mutating func renderPackageBuild(
+        packagePath: String,
+        targets: [TuistTarget],
+        extraLoads: [String] = [],
+        extraBlocks: [String] = []
+    ) throws -> String {
         var build = BuildFile()
-        let loads = try loadsFor(targets, packagePath: packagePath)
+        let loads = orderedUnique(try loadsFor(targets, packagePath: packagePath) + extraLoads)
         for load in loads {
             build.add(load)
         }
@@ -385,6 +414,10 @@ struct BazelGenerator {
         for target in targets.sorted(by: { $0.name < $1.name }) {
             build.add()
             build.addBlock(try renderTarget(target, packagePath: packagePath))
+        }
+        for block in extraBlocks {
+            build.add()
+            build.addBlock(block)
         }
 
         return build.content
@@ -407,6 +440,7 @@ struct BazelGenerator {
             let deps = target.dependencies
                 .filter(targetNames.contains)
                 .map { BazelLabel(package: packagePath, name: $0) }
+                + target.packageDependencies.compactMap { remoteSwiftPackageProductLabels[$0] }
             build.add()
             build.addBlock("""
             swift_library(

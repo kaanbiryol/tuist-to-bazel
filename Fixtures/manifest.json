@@ -211,8 +211,14 @@
       "upstreamTuistPath": "examples/xcode/generated_app_with_local_spm_module_with_remote_dependencies",
       "category": "conformance",
       "featureTags": ["spm", "local-package", "remote-package"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["local SwiftPM package dependency support is not automated yet"]
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //..."
+      ]
     },
     {
       "name": "generated_ios_app_with_local_binary_swift_package",

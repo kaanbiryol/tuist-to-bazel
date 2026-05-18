@@ -307,6 +307,94 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(packageResolved.contains("\"identity\" : \"rxswift\""))
     }
 
+    func testGeneratesLocalSwiftPackageTransitiveRemoteDependencies() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-local-remote-spm-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let package = root.appendingPathComponent("LocalSwiftPackage", isDirectory: true)
+        let sources = package.appendingPathComponent("Sources/LocalSwiftPackage", isDirectory: true)
+        try fileManager.createDirectory(at: sources, withIntermediateDirectories: true)
+        try """
+        // swift-tools-version: 5.10
+        import PackageDescription
+
+        let package = Package(
+            name: "LocalSwiftPackage",
+            products: [
+                .library(name: "LocalSwiftPackage", targets: ["LocalSwiftPackage"]),
+            ],
+            dependencies: [
+                .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
+            ],
+            targets: [
+                .target(
+                    name: "LocalSwiftPackage",
+                    dependencies: [
+                        .product(name: "Collections", package: "swift-collections"),
+                    ]
+                ),
+            ]
+        )
+        """.write(to: package.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+        try """
+        {
+          "pins" : [
+            {
+              "identity" : "swift-collections",
+              "kind" : "remoteSourceControl",
+              "location" : "https://github.com/apple/swift-collections",
+              "state" : {
+                "revision" : "7b847a3b7008b2dc2f47ca3110d8c782fb2e5c7e",
+                "version" : "1.3.0"
+              }
+            }
+          ],
+          "version" : 2
+        }
+        """.write(to: package.appendingPathComponent("Package.resolved"), atomically: true, encoding: .utf8)
+        try "import Collections\npublic struct LocalType {}\n".write(
+            to: sources.appendingPathComponent("LocalSwiftPackage.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let graph = TuistGraph(
+            name: "LocalRemoteSPMFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("App/Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [.package(product: "LocalSwiftPackage")]
+                        ),
+                    ]
+                ),
+            ],
+            localSwiftPackages: [TuistLocalSwiftPackage(path: package.path)]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let module = try XCTUnwrap(rendered["MODULE.bazel"])
+        let packageBuild = try XCTUnwrap(rendered["LocalSwiftPackage/BUILD.bazel"])
+        let packageSwift = try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.swift"])
+        XCTAssertTrue(module.contains("\"swiftpkg_swift_collections\""))
+        XCTAssertTrue(packageBuild.contains("@swiftpkg_swift_collections//:Collections"))
+        XCTAssertTrue(packageSwift.contains(".package(url: \"https://github.com/apple/swift-collections\", .upToNextMajor(from: \"1.0.0\"))"))
+    }
+
     func testGeneratesStaticLibraryDependenciesForProjectAndSwiftArchive() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
