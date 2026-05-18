@@ -14,7 +14,8 @@ struct TuistGraphParser {
 
         return TuistGraph(
             name: name,
-            projects: try parseProjects(projectsValue)
+            projects: try parseProjects(projectsValue),
+            localSwiftPackages: parseLocalSwiftPackages(rootObject["packages"]).map(TuistLocalSwiftPackage.init(path:))
         )
     }
 
@@ -207,6 +208,29 @@ struct TuistGraphParser {
 
     private func parseStringArray(_ value: JSONValue?) -> [String] {
         value?.arrayValue?.compactMap(\.stringValue) ?? []
+    }
+
+    private func parseLocalSwiftPackages(_ value: JSONValue?) -> [String] {
+        var paths: [String] = []
+        collectLocalSwiftPackages(value, into: &paths)
+        return orderedUnique(paths)
+    }
+
+    private func collectLocalSwiftPackages(_ value: JSONValue?, into paths: inout [String]) {
+        guard let value else { return }
+        if let path = value["local"]?["path"]?.stringValue {
+            paths.append(path)
+        }
+        if let object = value.objectValue {
+            for child in object.values {
+                collectLocalSwiftPackages(child, into: &paths)
+            }
+        }
+        if let array = value.arrayValue {
+            for child in array {
+                collectLocalSwiftPackages(child, into: &paths)
+            }
+        }
     }
 
     private func parseTags(_ value: JSONValue?) -> [String] {

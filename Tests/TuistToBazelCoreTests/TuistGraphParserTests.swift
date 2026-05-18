@@ -45,6 +45,42 @@ final class TuistGraphParserTests: XCTestCase {
         XCTAssertEqual(graph.projects[0].targets[0].dependencies.count, 1)
     }
 
+    func testParsesLocalSwiftPackages() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "packages": [
+            "/tmp/App",
+            {
+              "/tmp/App/Packages/PackageA": {
+                "local": {
+                  "path": "/tmp/App/Packages/PackageA"
+                }
+              }
+            },
+            "/tmp/App/Framework",
+            {
+              "/tmp/App/Packages/PackageA": {
+                "local": {
+                  "path": "/tmp/App/Packages/PackageA"
+                }
+              }
+            }
+          ],
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {}
+            }
+          }
+        }
+        """
+
+        let graph = try TuistGraphParser().parse(data: Data(json.utf8))
+
+        XCTAssertEqual(graph.localSwiftPackages, [TuistLocalSwiftPackage(path: "/tmp/App/Packages/PackageA")])
+    }
+
     func testParsesExtensionProductsAndDefaultInfoPlistEntries() throws {
         let json = """
         {

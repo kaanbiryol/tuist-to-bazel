@@ -3,12 +3,17 @@ import Foundation
 struct TuistGraph {
     let name: String
     let projects: [TuistProject]
+    var localSwiftPackages: [TuistLocalSwiftPackage] = []
 }
 
 struct TuistProject {
     let name: String
     let path: String
     let targets: [TuistTarget]
+}
+
+struct TuistLocalSwiftPackage: Hashable {
+    let path: String
 }
 
 struct TuistTarget {

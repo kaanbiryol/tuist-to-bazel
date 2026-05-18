@@ -5,6 +5,7 @@ struct BazelGenerator {
     private let paths: PathContext
     private let fileManager = FileManager.default
     private let resourceAccessors = ResourceAccessorGenerator()
+    private let swiftPackageParser = SwiftPackageManifestParser()
     private var warnings: [String] = []
     private var generatedFiles: [String: String] = [:]
     private var targetsByName: [String: TuistTarget] = [:]
@@ -12,6 +13,8 @@ struct BazelGenerator {
     private var targetsWithTestConsumers: Set<String> = []
     private var extensionSafeTargets: Set<String> = []
     private var appSpecificExtensionConsumers: [String: [AppSpecificExtensionConsumer]] = [:]
+    private var localSwiftPackageManifests: [String: SwiftPackageManifest] = [:]
+    private var localSwiftPackageProductLabels: [String: BazelLabel] = [:]
 
     init(graph: TuistGraph, paths: PathContext) {
         self.graph = graph
@@ -20,6 +23,7 @@ struct BazelGenerator {
 
     mutating func render() throws -> (files: [String: String], warnings: [String]) {
         indexTargets()
+        try indexLocalSwiftPackages()
         var files: [String: String] = [:]
         files["MODULE.bazel"] = renderModule()
         files["BUILD.bazel"] = try renderRootBuild()
@@ -32,6 +36,17 @@ struct BazelGenerator {
             files[pathForBuildFile(packagePath)] = try renderPackageBuild(
                 packagePath: packagePath,
                 targets: targetsByPackage[packagePath] ?? []
+            )
+        }
+        for packagePath in localSwiftPackageManifests.keys.sorted() {
+            let buildPath = pathForBuildFile(packagePath)
+            guard files[buildPath] == nil else {
+                warnings.append("local Swift package at \(packagePath) overlaps an existing Bazel package")
+                continue
+            }
+            files[buildPath] = try renderLocalSwiftPackageBuild(
+                packagePath: packagePath,
+                manifest: localSwiftPackageManifests[packagePath]!
             )
         }
         for (path, content) in generatedFiles {
@@ -89,6 +104,35 @@ struct BazelGenerator {
 
     private func targetIdentity(_ target: TuistTarget) -> String {
         indexKey(path: target.projectPath, name: target.name)
+    }
+
+    private mutating func indexLocalSwiftPackages() throws {
+        for localPackage in graph.localSwiftPackages {
+            let packagePath = try paths.packagePath(for: localPackage.path)
+            guard localSwiftPackageManifests[packagePath] == nil else {
+                continue
+            }
+            let manifest = try swiftPackageParser.parse(packagePath: localPackage.path)
+            localSwiftPackageManifests[packagePath] = manifest
+
+            let targetNames = Set(manifest.targets.map(\.name))
+            for product in manifest.products {
+                guard let targetName = product.targets.first, product.targets.count == 1, targetNames.contains(targetName) else {
+                    warnings.append("local Swift package product \(product.name) is not generated because it has multiple or missing targets")
+                    continue
+                }
+                let label = BazelLabel(package: packagePath, name: targetName)
+                if localSwiftPackageProductLabels[product.name] == nil {
+                    localSwiftPackageProductLabels[product.name] = label
+                } else {
+                    warnings.append("local Swift package product \(product.name) is ambiguous")
+                }
+            }
+
+            for target in manifest.targets {
+                localSwiftPackageProductLabels[target.name] = BazelLabel(package: packagePath, name: target.name)
+            }
+        }
     }
 
     private func pathForBuildFile(_ packagePath: String) -> String {
@@ -192,6 +236,53 @@ struct BazelGenerator {
         for target in targets.sorted(by: { $0.name < $1.name }) {
             build.add()
             build.addBlock(try renderTarget(target, packagePath: packagePath))
+        }
+
+        return build.content
+    }
+
+    private func renderLocalSwiftPackageBuild(packagePath: String, manifest: SwiftPackageManifest) throws -> String {
+        var build = BuildFile()
+        let buildableTargets = manifest.targets.filter { !$0.sources.isEmpty }
+        if !buildableTargets.isEmpty {
+            build.add("load(\"@build_bazel_rules_swift//swift:swift.bzl\", \"swift_library\")")
+            build.add()
+        }
+        build.add("package(default_visibility = [\"//visibility:public\"])")
+
+        let targetNames = Set(buildableTargets.map(\.name))
+        for target in buildableTargets.sorted(by: { $0.name < $1.name }) {
+            let sourceLabels = try target.sources.map {
+                try paths.pathRelativeToPackage($0, packagePath: packagePath)
+            }
+            let deps = target.dependencies
+                .filter(targetNames.contains)
+                .map { BazelLabel(package: packagePath, name: $0) }
+            build.add()
+            build.addBlock("""
+            swift_library(
+                name = "\(target.name)",
+                srcs = \(Starlark.list(sourceLabels, indent: 4)),
+                module_name = "\(sanitizedModuleName(target.name))",
+                deps = \(Starlark.list(deps.map { $0.localDescription(in: packagePath) }, indent: 4)),
+            )
+            """)
+        }
+
+        for product in manifest.products.sorted(by: { $0.name < $1.name }) {
+            guard let targetName = product.targets.first,
+                  product.targets.count == 1,
+                  product.name != targetName,
+                  targetNames.contains(targetName) else {
+                continue
+            }
+            build.add()
+            build.addBlock("""
+            alias(
+                name = "\(product.name)",
+                actual = ":\(targetName)",
+            )
+            """)
         }
 
         return build.content
@@ -1291,7 +1382,11 @@ struct BazelGenerator {
 
             switch dependency {
             case let .package(product):
-                warnings.append("package dependency \(product) on target \(target.name) is not generated yet")
+                if let label = localSwiftPackageProductLabels[product] {
+                    result.codeDeps.append(label)
+                } else {
+                    warnings.append("package dependency \(product) on target \(target.name) is not generated yet")
+                }
             case let .sdk(name, status):
                 let sdkDependency = sdkDependency(for: name, status: status)
                 result.sdkFrameworks.append(contentsOf: sdkDependency.sdkFrameworks)

@@ -156,6 +156,86 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rendered[".bazel/InfoPlists/TopShelfExtension-Info.plist"]?.contains("com.apple.tv-top-shelf") == true)
     }
 
+    func testGeneratesLocalSwiftPackageDependencies() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-local-spm-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let package = root.appendingPathComponent("Packages/PackageA", isDirectory: true)
+        let libraryA = package.appendingPathComponent("Sources/LibraryA", isDirectory: true)
+        let libraryB = package.appendingPathComponent("Sources/LibraryB", isDirectory: true)
+        try fileManager.createDirectory(at: libraryA, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: libraryB, withIntermediateDirectories: true)
+        try """
+        // swift-tools-version: 6.2
+        import PackageDescription
+
+        let package = Package(
+            name: "PackageA",
+            products: [
+                .library(name: "LibraryA", targets: ["LibraryA"]),
+                .library(name: "LibraryB", targets: ["LibraryB"]),
+            ],
+            targets: [
+                .target(name: "LibraryA", dependencies: []),
+                .target(name: "LibraryB", dependencies: []),
+            ]
+        )
+        """.write(to: package.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+        try "public struct LibraryAType {}\n".write(
+            to: libraryA.appendingPathComponent("LibraryA.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "public struct LibraryBType {}\n".write(
+            to: libraryB.appendingPathComponent("LibraryB.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let graph = TuistGraph(
+            name: "LocalSPMFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .package(product: "LibraryA"),
+                                .package(product: "LibraryB"),
+                            ]
+                        ),
+                    ]
+                ),
+            ],
+            localSwiftPackages: [TuistLocalSwiftPackage(path: package.path)]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let result = try generator.render()
+        let rendered = result.files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        let packageBuild = try XCTUnwrap(rendered["Packages/PackageA/BUILD.bazel"])
+        XCTAssertFalse(result.warnings.contains { $0.contains("package dependency") })
+        XCTAssertTrue(rootBuild.contains("//Packages/PackageA:LibraryA"))
+        XCTAssertTrue(rootBuild.contains("//Packages/PackageA:LibraryB"))
+        XCTAssertTrue(packageBuild.contains("swift_library(\n    name = \"LibraryA\""))
+        XCTAssertTrue(packageBuild.contains("Sources/LibraryA/LibraryA.swift"))
+        XCTAssertTrue(packageBuild.contains("swift_library(\n    name = \"LibraryB\""))
+        XCTAssertTrue(packageBuild.contains("Sources/LibraryB/LibraryB.swift"))
+    }
+
     func testGeneratesStaticLibraryDependenciesForProjectAndSwiftArchive() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
