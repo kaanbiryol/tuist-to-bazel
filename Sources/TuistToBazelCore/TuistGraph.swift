@@ -91,6 +91,7 @@ enum ProductType: String {
     case tvTopShelfExtension
     case staticLibrary
     case dynamicLibrary
+    case macro
     case bundle
     case unitTests
     case uiTests
@@ -118,6 +119,8 @@ enum ProductType: String {
             self = .staticLibrary
         case "dynamicLibrary", "dynamic_library":
             self = .dynamicLibrary
+        case "macro":
+            self = .macro
         case "bundle":
             self = .bundle
         case "unitTests", "unit_tests":
@@ -133,7 +136,7 @@ enum ProductType: String {
         switch self {
         case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .tvTopShelfExtension, .staticLibrary, .dynamicLibrary, .unitTests, .uiTests:
             true
-        case .bundle, .stickerPackExtension, .unsupported:
+        case .bundle, .macro, .stickerPackExtension, .unsupported:
             false
         }
     }
@@ -156,7 +159,12 @@ enum TuistDependency {
     case framework(path: String)
     case xcframework(path: String)
     case library(path: String, publicHeaders: String?, swiftModuleMap: String?)
-    case package(product: String)
+    case package(product: String, kind: PackageDependencyKind = .runtime)
     case sdk(name: String, status: String?)
     case xctest
+}
+
+enum PackageDependencyKind: Equatable {
+    case runtime
+    case plugin
 }

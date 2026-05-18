@@ -158,7 +158,7 @@ struct BazelGenerator {
             .flatMap(\.targets)
             .flatMap(\.dependencies)
             .compactMap { dependency -> String? in
-                guard case let .package(product) = dependency else {
+                guard case let .package(product, kind) = dependency, kind == .runtime else {
                     return nil
                 }
                 return product
@@ -351,26 +351,27 @@ struct BazelGenerator {
     }
 
     private mutating func renderRootXcodeproj() throws -> (loads: [String], block: String) {
-        let apps = graph.projects.flatMap(\.targets).filter { $0.product == .app }.sorted { $0.name < $1.name }
-        guard !apps.isEmpty else {
-            warnings.append("no app target found; root xcodeproj target list is empty")
+        let primaryProducts = graph.projects.flatMap(\.targets)
+            .filter { target in
+                target.product == .app
+            }
+            .sorted { $0.name < $1.name }
+        let topLevelProducts = try primaryProducts.isEmpty
+            ? graph.projects.flatMap(\.targets)
+                .filter { target in
+                    try paths.packagePath(for: target.projectPath).isEmpty && isLibraryTopLevelProduct(target.product)
+                }
+                .sorted { $0.name < $1.name }
+            : primaryProducts
+        guard !topLevelProducts.isEmpty else {
+            warnings.append("no top-level product found; root xcodeproj was skipped")
             return (
-                loads: [
-                    "load(\"@rules_xcodeproj//xcodeproj:defs.bzl\", \"top_level_target\")",
-                    "load(\"@rules_xcodeproj//xcodeproj:xcodeproj.bzl\", \"xcodeproj\")",
-                ],
-                block: """
-                xcodeproj(
-                    name = "xcodeproj",
-                    project_name = "\(sanitizedModuleName(graph.name))",
-                    scheme_autogeneration_mode = "all",
-                    top_level_targets = [],
-                )
-                """
+                loads: [],
+                block: "# xcodeproj skipped: no top-level product"
             )
         }
 
-        let topLevelTargets = try apps.map { app in
+        let topLevelTargets = try topLevelProducts.map { app in
             """
                     top_level_target(
                         "\(try productLabel(for: app).description)",
@@ -394,6 +395,15 @@ struct BazelGenerator {
             )
             """
         )
+    }
+
+    private func isLibraryTopLevelProduct(_ product: ProductType) -> Bool {
+        switch product {
+        case .framework, .staticFramework, .dynamicLibrary, .staticLibrary:
+            true
+        case .app, .appExtension, .extensionKitExtension, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension, .macro, .bundle, .unitTests, .uiTests, .unsupported:
+            false
+        }
     }
 
     private mutating func renderPackageBuild(
@@ -529,7 +539,9 @@ struct BazelGenerator {
         var appleImportRules: Set<String> = []
 
         for target in targets {
-            if target.product.isSwiftBacked {
+            if target.product == .macro {
+                swiftRules.insert("swift_compiler_plugin")
+            } else if target.product.isSwiftBacked {
                 if requiresMixedLanguage(target) {
                     needsMixedLanguage = true
                 } else if requiresObjCLibrary(target) {
@@ -568,6 +580,8 @@ struct BazelGenerator {
                 iosRules.insert("ios_sticker_pack_extension")
             case .tvTopShelfExtension:
                 tvOSRules.insert("tvos_extension")
+            case .macro:
+                break
             case .unitTests:
                 iosRules.insert("ios_unit_test")
             case .uiTests:
@@ -594,7 +608,7 @@ struct BazelGenerator {
                        binaryImportPackage(for: dependency, consumingPackage: pair.packagePath) == packagePath {
                         swiftRules.insert("swift_import")
                     }
-                case .target, .project, .package, .sdk, .xctest:
+                case .target, .project, .package(_, _), .sdk, .xctest:
                     break
                 }
             }
@@ -728,7 +742,7 @@ struct BazelGenerator {
             binaryImportPackage(for: path, consumingPackage: consumingPackage)
         case .library:
             ""
-        case .target, .project, .package, .sdk, .xctest:
+        case .target, .project, .package(_, _), .sdk, .xctest:
             nil
         }
     }
@@ -780,6 +794,8 @@ struct BazelGenerator {
             )
         case .staticLibrary, .dynamicLibrary:
             return try renderLibrary(target, packagePath: packagePath)
+        case .macro:
+            return try renderCompilerPlugin(target, packagePath: packagePath)
         case .bundle:
             return try renderResourceBundle(target, packagePath: packagePath)
         case .unitTests:
@@ -943,7 +959,7 @@ struct BazelGenerator {
                 bundleId: consumer.bundleId,
                 infoPlistTarget: wrapper
             )
-        case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .bundle, .unitTests, .uiTests, .unsupported:
+        case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             return ""
         }
     }
@@ -1167,6 +1183,22 @@ struct BazelGenerator {
         ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
     }
 
+    private mutating func renderCompilerPlugin(_ target: TuistTarget, packagePath: String) throws -> String {
+        let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let srcs = try sourceLabels(for: target, packagePath: packagePath)
+        let tagsAttribute = "    tags = [\"manual\"],\n"
+        let pluginsAttribute = deps.pluginDeps.isEmpty ? "" : "    plugins = \(Starlark.list(deps.pluginDeps.map { $0.localDescription(in: packagePath) }, indent: 4)),\n"
+
+        return """
+        swift_compiler_plugin(
+            name = "\(target.name)",
+            srcs = \(Starlark.list(srcs, indent: 4)),
+            module_name = "\(sanitizedModuleName(target.productName))",
+        \(pluginsAttribute)\(tagsAttribute)    deps = \(Starlark.list(deps.codeDeps.map { $0.localDescription(in: packagePath) }, indent: 4)),
+        )
+        """
+    }
+
     private mutating func renderResourceBundle(_ target: TuistTarget, packagePath: String) throws -> String {
         let resources = try resourceExpressions(for: target, packagePath: packagePath)
         return [
@@ -1197,6 +1229,7 @@ struct BazelGenerator {
             testonly: testonly,
             manual: manual,
             extraDeps: deps.codeDeps,
+            pluginDeps: deps.pluginDeps,
             sdkFrameworks: deps.sdkFrameworks,
             weakSdkFrameworks: deps.weakSdkFrameworks,
             sdkDylibs: deps.sdkDylibs,
@@ -1212,6 +1245,7 @@ struct BazelGenerator {
         testonly: Bool,
         manual: Bool = false,
         extraDeps: [BazelLabel] = [],
+        pluginDeps: [BazelLabel] = [],
         sdkFrameworks: [String] = [],
         weakSdkFrameworks: [String] = [],
         sdkDylibs: [String] = [],
@@ -1230,6 +1264,9 @@ struct BazelGenerator {
         let coptsAttribute = testableCopts.isEmpty ? "" : "    copts = \(Starlark.list(testableCopts, indent: 4)),\n"
         let dataAttribute = data.isEmpty ? "" : "    data = \(Starlark.list(data.map { $0.localDescription(in: packagePath) }, indent: 4)),\n"
         let linkoptsAttribute = linkopts.isEmpty ? "" : "    linkopts = \(Starlark.orderedList(linkopts, indent: 4)),\n"
+        let plugins = pluginDeps.map { $0.localDescription(in: packagePath) }
+        let pluginsAttribute = plugins.isEmpty ? "" : "    plugins = \(Starlark.list(plugins, indent: 4)),\n"
+        let swiftPluginsAttribute = plugins.isEmpty ? "" : "    swift_plugins = \(Starlark.list(plugins, indent: 4)),\n"
 
         if clangSrcs.isEmpty, requiresObjCLibrary(target), target.sources.contains(where: isClangSource) {
             clangSrcs.append(generatedObjCStubSource(for: target, packagePath: packagePath))
@@ -1265,7 +1302,7 @@ struct BazelGenerator {
                 hdrs = \(Starlark.list(hdrs, indent: 4)),
             \(developerSearchPath)\(dataAttribute)    enable_modules = True,
             \(includesAttribute)\(linkoptsAttribute)    module_name = "\(sanitizedModuleName(target.productName))",
-            \(sdkDylibsAttribute)\(sdkFrameworksAttribute)\(swiftCoptsAttribute)    swift_srcs = \(Starlark.list(srcs, indent: 4)),
+            \(sdkDylibsAttribute)\(sdkFrameworksAttribute)\(swiftCoptsAttribute)\(swiftPluginsAttribute)    swift_srcs = \(Starlark.list(srcs, indent: 4)),
             \(tagsAttribute)\(testonlyAttribute)\(weakSdkFrameworksAttribute)    deps = \(Starlark.list(deps.map { $0.localDescription(in: packagePath) }, indent: 4)),
             )
             """
@@ -1276,7 +1313,7 @@ struct BazelGenerator {
             name = "\(name)",
             srcs = \(Starlark.list(srcs, indent: 4)),
         \(developerSearchPath)\(coptsAttribute)\(dataAttribute)\(linkoptsAttribute)    module_name = "\(sanitizedModuleName(target.productName))",
-        \(tagsAttribute)\(testonlyAttribute)    deps = \(Starlark.list(deps.map { $0.localDescription(in: packagePath) }, indent: 4)),
+        \(pluginsAttribute)\(tagsAttribute)\(testonlyAttribute)    deps = \(Starlark.list(deps.map { $0.localDescription(in: packagePath) }, indent: 4)),
         )
         """
     }
@@ -1336,7 +1373,6 @@ struct BazelGenerator {
     private func hasSwiftInputs(_ target: TuistTarget) -> Bool {
         target.sources.contains { $0.hasSuffix(".swift") }
             || resourceAccessors.shouldGenerate(for: target)
-            || coreDataModels.shouldGenerate(for: target)
     }
 
     private func isClangSource(_ path: String) -> Bool {
@@ -1458,7 +1494,7 @@ struct BazelGenerator {
         switch target.product {
         case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .tvTopShelfExtension, .unitTests, .uiTests:
             "\(target.name)Lib"
-        case .staticLibrary, .dynamicLibrary, .bundle, .stickerPackExtension, .unsupported:
+        case .staticLibrary, .dynamicLibrary, .macro, .bundle, .stickerPackExtension, .unsupported:
             target.name
         }
     }
@@ -1544,7 +1580,7 @@ struct BazelGenerator {
         switch product {
         case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension:
             true
-        case .staticFramework, .staticLibrary, .dynamicLibrary, .bundle, .unitTests, .uiTests, .unsupported:
+        case .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             false
         }
     }
@@ -1635,6 +1671,7 @@ struct BazelGenerator {
 
     private struct ResolvedDependencies {
         var codeDeps: [BazelLabel] = []
+        var pluginDeps: [BazelLabel] = []
         var frameworkDeps: [BazelLabel] = []
         var extensionDeps: [BazelLabel] = []
         var resourceDeps: [BazelLabel] = []
@@ -1657,6 +1694,8 @@ struct BazelGenerator {
         for dependency in target.dependencies {
             if let dependencyTarget = resolveTargetDependency(dependency) {
                 switch dependencyTarget.product {
+                case .macro:
+                    result.pluginDeps.append(try productLabel(for: dependencyTarget))
                 case .framework where target.product == .app || isExtensionProduct(target.product):
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
@@ -1685,7 +1724,10 @@ struct BazelGenerator {
             }
 
             switch dependency {
-            case let .package(product):
+            case let .package(product, kind):
+                guard kind == .runtime else {
+                    continue
+                }
                 if let label = localSwiftPackageProductLabels[product] {
                     result.codeDeps.append(label)
                 } else if let label = remoteSwiftPackageProductLabels[product] {
@@ -1718,8 +1760,14 @@ struct BazelGenerator {
             }
         }
 
+        if importsXCTestUnconditionally(in: target.sources), !result.includeDeveloperSearchPaths {
+            result.includeDeveloperSearchPaths = true
+            result.linkopts.append(contentsOf: ["-framework", "XCTest"])
+        }
+
         result.codeDeps.append(contentsOf: try binaryImportDepsReferencedBySources(for: target, packagePath: packagePath))
         result.codeDeps = Array(Set(result.codeDeps)).sorted()
+        result.pluginDeps = Array(Set(result.pluginDeps)).sorted()
         result.frameworkDeps = Array(Set(result.frameworkDeps)).sorted()
         result.extensionDeps = Array(Set(result.extensionDeps)).sorted()
         result.resourceDeps = Array(Set(result.resourceDeps)).sorted()
@@ -1727,6 +1775,37 @@ struct BazelGenerator {
         result.weakSdkFrameworks = Array(Set(result.weakSdkFrameworks)).sorted()
         result.sdkDylibs = Array(Set(result.sdkDylibs)).sorted()
         return result
+    }
+
+    private func importsXCTestUnconditionally(in sourcePaths: [String]) -> Bool {
+        sourcePaths.contains { path in
+            guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
+                return false
+            }
+            return importsXCTestUnconditionally(inContent: content)
+        }
+    }
+
+    private func importsXCTestUnconditionally(inContent content: String) -> Bool {
+        var conditionalDepth = 0
+        for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#if") || line.hasPrefix("#elseif") || line.hasPrefix("#else") {
+                if line.hasPrefix("#if") {
+                    conditionalDepth += 1
+                }
+                continue
+            }
+            if line.hasPrefix("#endif") {
+                conditionalDepth = max(0, conditionalDepth - 1)
+                continue
+            }
+            if conditionalDepth == 0,
+               line.range(of: #"^(?:@_exported\s+)?import\s+XCTest(?:\s|$)"#, options: .regularExpression) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     private func binaryImportDepsReferencedBySources(for target: TuistTarget, packagePath: String) throws -> [BazelLabel] {
@@ -1812,7 +1891,7 @@ struct BazelGenerator {
         switch product {
         case .appExtension, .extensionKitExtension, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension:
             true
-        case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .bundle, .unitTests, .uiTests, .unsupported:
+        case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             false
         }
     }
@@ -1866,7 +1945,7 @@ struct BazelGenerator {
             targetsByName[name]
         case let .project(target, path):
             targetsByPathAndName[indexKey(path: path, name: target)] ?? targetsByName[target]
-        case .framework, .xcframework, .library, .package, .sdk, .xctest:
+        case .framework, .xcframework, .library, .package(_, _), .sdk, .xctest:
             nil
         }
     }

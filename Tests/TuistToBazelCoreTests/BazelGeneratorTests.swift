@@ -156,6 +156,103 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rendered[".bazel/InfoPlists/TopShelfExtension-Info.plist"]?.contains("com.apple.tv-top-shelf") == true)
     }
 
+    func testGeneratesSwiftCompilerPluginsForMacroTargets() throws {
+        let root = URL(fileURLWithPath: "/tmp/MacroFixture")
+        let graph = TuistGraph(
+            name: "MacroFixture",
+            projects: [
+                TuistProject(
+                    name: "Framework",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "Framework",
+                            product: .framework,
+                            destinations: ["mac"],
+                            bundleId: "dev.tuist.Framework",
+                            productName: "Framework",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/Framework.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "FrameworkMacros")]
+                        ),
+                        TuistTarget(
+                            name: "FrameworkMacros",
+                            product: .macro,
+                            destinations: ["mac"],
+                            bundleId: "dev.tuist.FrameworkMacros",
+                            productName: "FrameworkMacros",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/FrameworkMacros/Plugin.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_swift//swift:swift.bzl\", \"swift_compiler_plugin\", \"swift_library\")"))
+        XCTAssertTrue(rootBuild.contains("swift_compiler_plugin(\n    name = \"FrameworkMacros\""))
+        XCTAssertTrue(rootBuild.contains("swift_library(\n    name = \"FrameworkLib\""))
+        XCTAssertTrue(rootBuild.contains("plugins = [\n        \":FrameworkMacros\","))
+        XCTAssertTrue(rootBuild.contains("macos_framework("))
+        XCTAssertTrue(rootBuild.contains("top_level_target(\n            \"//:Framework\""))
+    }
+
+    func testAddsDeveloperSearchPathsForUnconditionalXCTestImports() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-xctest-import-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let sources = root.appendingPathComponent("Sources/TestSupport", isDirectory: true)
+        try fileManager.createDirectory(at: sources, withIntermediateDirectories: true)
+        try """
+        import XCTest
+
+        public func assertSomething(_ value: Bool) {
+            XCTAssertTrue(value)
+        }
+        """.write(to: sources.appendingPathComponent("TestSupport.swift"), atomically: true, encoding: .utf8)
+
+        let graph = TuistGraph(
+            name: "XCTestImportFixture",
+            projects: [
+                TuistProject(
+                    name: "Support",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "TestSupport",
+                            product: .staticLibrary,
+                            bundleId: nil,
+                            productName: "TestSupport",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [sources.appendingPathComponent("TestSupport.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("always_include_developer_search_paths = True"))
+        XCTAssertTrue(rootBuild.contains("linkopts = [\n        \"-framework\",\n        \"XCTest\","))
+    }
+
     func testGeneratesLocalSwiftPackageDependencies() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

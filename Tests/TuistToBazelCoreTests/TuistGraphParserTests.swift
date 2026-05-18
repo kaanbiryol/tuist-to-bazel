@@ -117,6 +117,70 @@ final class TuistGraphParserTests: XCTestCase {
         )
     }
 
+    func testParsesPackagePluginDependencies() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {
+                "Framework": {
+                  "product": "framework",
+                  "dependencies": [
+                    {
+                      "package": {
+                        "product": "SwiftLint",
+                        "type": "plugin package product"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let graph = try TuistGraphParser().parse(data: Data(json.utf8))
+        let dependency = try XCTUnwrap(graph.projects.first?.targets.first?.dependencies.first)
+
+        guard case let .package(product, kind) = dependency else {
+            return XCTFail("expected package dependency")
+        }
+        XCTAssertEqual(product, "SwiftLint")
+        XCTAssertEqual(kind, .plugin)
+    }
+
+    func testParsesMacroProducts() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {
+                "Macros": {
+                  "product": "macro",
+                  "sources": [
+                    {
+                      "path": "/tmp/App/Sources/Macros/Macros.swift"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let graph = try TuistGraphParser().parse(data: Data(json.utf8))
+        let target = try XCTUnwrap(graph.projects.first?.targets.first)
+
+        XCTAssertEqual(target.product, .macro)
+        XCTAssertEqual(target.sources, ["/tmp/App/Sources/Macros/Macros.swift"])
+    }
+
     func testParsesExtensionProductsAndDefaultInfoPlistEntries() throws {
         let json = """
         {

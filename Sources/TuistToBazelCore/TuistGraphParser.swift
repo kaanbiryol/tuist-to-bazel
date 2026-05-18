@@ -309,7 +309,9 @@ struct TuistGraphParser {
                 )
             }
             if let package = element["package"]?.objectValue, let product = package["product"]?.stringValue {
-                return .package(product: product)
+                let rawType = package["type"]?.stringValue ?? ""
+                let kind: PackageDependencyKind = rawType.contains("plugin") ? .plugin : .runtime
+                return .package(product: product, kind: kind)
             }
             if let sdk = element["sdk"]?.objectValue, let name = sdk["name"]?.stringValue {
                 return .sdk(name: name, status: sdk["status"]?.stringValue)
