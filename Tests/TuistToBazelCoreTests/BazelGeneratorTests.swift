@@ -328,6 +328,55 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertFalse(staticBuild.contains("umbrella_header ="))
     }
 
+    func testGeneratesMacOSFrameworkForMacOnlyDestinations() throws {
+        let root = URL(fileURLWithPath: "/tmp/PlatformFixture")
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "Framework",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "Shared-iOS",
+                            product: .framework,
+                            destinations: ["iPhone", "iPad", "macWithiPadDesign"],
+                            bundleId: "dev.tuist.Shared",
+                            productName: "Shared",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/Shared.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "Shared-macOS",
+                            product: .framework,
+                            destinations: ["mac"],
+                            bundleId: "dev.tuist.Shared",
+                            productName: "Shared",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/Shared.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:ios.bzl\", \"ios_framework\")"))
+        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:macos.bzl\", \"macos_framework\")"))
+        XCTAssertTrue(rootBuild.contains("ios_framework(\n    name = \"Shared-iOS\""))
+        XCTAssertTrue(rootBuild.contains("macos_framework(\n    name = \"Shared-macOS\""))
+        XCTAssertTrue(rootBuild.contains("minimum_os_version = \"14.0\""))
+    }
+
     func testGeneratesExtensionProductRulesAndPlists() throws {
         let root = URL(fileURLWithPath: "/tmp/ExtensionFixture")
         let graph = TuistGraph(

@@ -199,6 +199,7 @@ struct BazelGenerator {
 
     private func loadsFor(_ targets: [TuistTarget], packagePath: String) throws -> [String] {
         var iosRules: Set<String> = []
+        var macOSRules: Set<String> = []
         var swiftRules: Set<String> = []
         var needsMixedLanguage = false
         var needsResources = false
@@ -221,7 +222,12 @@ struct BazelGenerator {
             case .extensionKitExtension:
                 iosRules.insert("ios_extension")
             case .framework:
-                iosRules.insert("ios_framework")
+                switch platform(for: target) {
+                case .ios:
+                    iosRules.insert("ios_framework")
+                case .macOS:
+                    macOSRules.insert("macos_framework")
+                }
             case .messagesExtension:
                 iosRules.insert("ios_imessage_extension")
             case .staticFramework:
@@ -275,6 +281,10 @@ struct BazelGenerator {
         if !iosRules.isEmpty {
             let ruleNames = iosRules.sorted().map(Starlark.quote).joined(separator: ", ")
             loads.append("load(\"@build_bazel_rules_apple//apple:ios.bzl\", \(ruleNames))")
+        }
+        if !macOSRules.isEmpty {
+            let ruleNames = macOSRules.sorted().map(Starlark.quote).joined(separator: ", ")
+            loads.append("load(\"@build_bazel_rules_apple//apple:macos.bzl\", \(ruleNames))")
         }
         if needsResources {
             loads.append("load(\"@build_bazel_rules_apple//apple:resources.bzl\", \"apple_bundle_import\", \"apple_resource_bundle\", \"apple_resource_group\")")
@@ -625,6 +635,15 @@ struct BazelGenerator {
     }
 
     private mutating func renderFramework(_ target: TuistTarget, packagePath: String) throws -> String {
+        switch platform(for: target) {
+        case .ios:
+            return try renderIOSFramework(target, packagePath: packagePath)
+        case .macOS:
+            return try renderMacOSFramework(target, packagePath: packagePath)
+        }
+    }
+
+    private mutating func renderIOSFramework(_ target: TuistTarget, packagePath: String) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
         return [
             try renderResourceGroupIfNeeded(target, packagePath: packagePath),
@@ -635,6 +654,23 @@ struct BazelGenerator {
                 bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
                 families = ["iphone", "ipad"],
             \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
+                deps = [":\(libraryName(for: target))"],
+            \(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
+            """
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
+            .replacingOccurrences(of: ")\n \n", with: ")\n")
+    }
+
+    private mutating func renderMacOSFramework(_ target: TuistTarget, packagePath: String) throws -> String {
+        let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        return [
+            try renderResourceGroupIfNeeded(target, packagePath: packagePath),
+            try renderSwiftLibrary(target, packagePath: packagePath, name: libraryName(for: target), testonly: false, manual: true, resolved: deps),
+            """
+            macos_framework(
+                name = "\(target.name)",
+                bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "14.0",
                 deps = [":\(libraryName(for: target))"],
             \(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
@@ -1205,6 +1241,20 @@ struct BazelGenerator {
         case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .bundle, .unitTests, .uiTests, .unsupported:
             false
         }
+    }
+
+    private enum ApplePlatform {
+        case ios
+        case macOS
+    }
+
+    private func platform(for target: TuistTarget) -> ApplePlatform {
+        let destinations = Set(target.destinations)
+        let iosDestinations: Set<String> = ["iPhone", "iPad", "macWithiPadDesign"]
+        if destinations.contains("mac"), destinations.isDisjoint(with: iosDestinations) {
+            return .macOS
+        }
+        return .ios
     }
 
     private func embeddedExtensionLabel(for extensionTarget: TuistTarget, app: TuistTarget) throws -> BazelLabel {

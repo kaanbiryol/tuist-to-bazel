@@ -13,6 +13,7 @@ final class TuistGraphParserTests: XCTestCase {
               "targets": {
                 "App": {
                   "product": "app",
+                  "destinations": ["iPhone", "iPad"],
                   "bundleId": "dev.tuist.App",
                   "productName": "App",
                   "infoPlist": { "file": { "path": "/tmp/App/Info.plist" } },
@@ -39,6 +40,7 @@ final class TuistGraphParserTests: XCTestCase {
         XCTAssertEqual(graph.projects.count, 1)
         XCTAssertEqual(graph.projects[0].targets[0].name, "App")
         XCTAssertEqual(graph.projects[0].targets[0].product, .app)
+        XCTAssertEqual(graph.projects[0].targets[0].destinations, ["iPhone", "iPad"])
         XCTAssertEqual(graph.projects[0].targets[0].resources.count, 2)
         XCTAssertEqual(graph.projects[0].targets[0].dependencies.count, 1)
     }

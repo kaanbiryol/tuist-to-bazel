@@ -72,6 +72,7 @@ struct TuistGraphParser {
         return TuistTarget(
             name: name,
             product: product,
+            destinations: parseStringArray(object["destinations"]),
             bundleId: object["bundleId"]?.stringValue,
             productName: object["productName"]?.stringValue ?? sanitizedModuleName(name),
             projectPath: projectPath,
@@ -175,6 +176,10 @@ struct TuistGraphParser {
     }
 
     private func parseHeaderGroup(_ value: JSONValue?) -> [String] {
+        value?.arrayValue?.compactMap(\.stringValue) ?? []
+    }
+
+    private func parseStringArray(_ value: JSONValue?) -> [String] {
         value?.arrayValue?.compactMap(\.stringValue) ?? []
     }
 

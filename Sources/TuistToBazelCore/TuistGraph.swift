@@ -14,6 +14,7 @@ struct TuistProject {
 struct TuistTarget {
     let name: String
     let product: ProductType
+    var destinations: [String] = []
     let bundleId: String?
     let productName: String
     let projectPath: String
