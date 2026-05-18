@@ -109,6 +109,36 @@ final class TuistGraphParserTests: XCTestCase {
         )
     }
 
+    func testParsesTVTopShelfExtensionProduct() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {
+                "TopShelfExtension": {
+                  "product": "tv_top_shelf_extension",
+                  "destinations": ["appleTv"],
+                  "bundleId": "dev.tuist.App.TopShelfExtension",
+                  "productName": "TopShelfExtension",
+                  "infoPlist": { "extendingDefault": { "with": {} } },
+                  "sources": [{ "path": "/tmp/App/TopShelfExtension/ContentProvider.swift" }],
+                  "resources": { "resources": [] },
+                  "dependencies": []
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let target = try TuistGraphParser().parse(data: Data(json.utf8)).projects[0].targets[0]
+
+        XCTAssertEqual(target.product, .tvTopShelfExtension)
+        XCTAssertEqual(target.destinations, ["appleTv"])
+    }
+
     func testParsesBuildableFolderResolvedFilesAsSourcesAndResources() throws {
         let json = """
         {

@@ -99,6 +99,63 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("\":FrameworkLib\"") == true)
     }
 
+    func testGeneratesTVOSAppAndTopShelfExtensionRules() throws {
+        let root = URL(fileURLWithPath: "/tmp/TVFixture")
+        let graph = TuistGraph(
+            name: "TVFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            destinations: ["appleTv"],
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: root.appendingPathComponent("Info.plist").path,
+                            sources: [root.appendingPathComponent("Sources/AppDelegate.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "TopShelfExtension")]
+                        ),
+                        TuistTarget(
+                            name: "TopShelfExtension",
+                            product: .tvTopShelfExtension,
+                            destinations: ["appleTv"],
+                            bundleId: "dev.tuist.App.TopShelfExtension",
+                            productName: "TopShelfExtension",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            infoPlistEntries: [
+                                "NSExtension": .dictionary([
+                                    "NSExtensionPointIdentifier": .string("com.apple.tv-top-shelf"),
+                                ]),
+                            ],
+                            sources: [root.appendingPathComponent("TopShelfExtension/ContentProvider.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:tvos.bzl\", \"tvos_application\", \"tvos_extension\")"))
+        XCTAssertTrue(rootBuild.contains("tvos_application("))
+        XCTAssertTrue(rootBuild.contains("families = [\"tv\"]"))
+        XCTAssertTrue(rootBuild.contains("extensions = ["))
+        XCTAssertTrue(rootBuild.contains("\":TopShelfExtension\""))
+        XCTAssertTrue(rootBuild.contains("tvos_extension("))
+        XCTAssertTrue(rootBuild.contains("target_environments = [\"simulator\"]"))
+        XCTAssertTrue(rendered[".bazel/InfoPlists/TopShelfExtension-Info.plist"]?.contains("com.apple.tv-top-shelf") == true)
+    }
+
     func testGeneratesStaticLibraryDependenciesForProjectAndSwiftArchive() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

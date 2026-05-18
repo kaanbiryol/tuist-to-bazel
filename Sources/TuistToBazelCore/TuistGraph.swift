@@ -54,6 +54,7 @@ enum ProductType: String {
     case messagesExtension
     case staticFramework
     case stickerPackExtension
+    case tvTopShelfExtension
     case staticLibrary
     case dynamicLibrary
     case bundle
@@ -77,6 +78,8 @@ enum ProductType: String {
             self = .staticFramework
         case "sticker_pack_extension", "stickerPackExtension":
             self = .stickerPackExtension
+        case "tv_top_shelf_extension", "tvTopShelfExtension":
+            self = .tvTopShelfExtension
         case "staticLibrary", "static_library":
             self = .staticLibrary
         case "dynamicLibrary", "dynamic_library":
@@ -94,7 +97,7 @@ enum ProductType: String {
 
     var isSwiftBacked: Bool {
         switch self {
-        case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .staticLibrary, .dynamicLibrary, .unitTests, .uiTests:
+        case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .tvTopShelfExtension, .staticLibrary, .dynamicLibrary, .unitTests, .uiTests:
             true
         case .bundle, .stickerPackExtension, .unsupported:
             false
