@@ -1444,7 +1444,7 @@ final class BazelGeneratorTests: XCTestCase {
         import Foundation
 
         enum Provider {
-            static let bundle = Bundle.module
+            static let bundle: Bundle = .module
         }
         """.write(to: source, atomically: true, encoding: .utf8)
         try #"{"images":[],"info":{"author":"xcode","version":1}}"#.write(

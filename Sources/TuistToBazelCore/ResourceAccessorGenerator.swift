@@ -21,7 +21,7 @@ struct ResourceAccessorGenerator {
                   let content = try? String(contentsOfFile: source, encoding: .utf8) else {
                 return false
             }
-            return topLevelNames.contains { content.contains($0) }
+            return topLevelNames.contains { content.contains($0) } || content.contains(".module")
         }
     }
 

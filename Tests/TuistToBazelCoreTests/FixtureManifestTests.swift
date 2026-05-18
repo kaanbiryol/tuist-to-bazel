@@ -17,7 +17,7 @@ final class FixtureManifestTests: XCTestCase {
         let corpusPrefix = "\(manifest.corpus.localPath)/"
         let selectedFixtures = manifest.fixtures.filter { $0.localPath.hasPrefix(corpusPrefix) }
 
-        XCTAssertEqual(selectedFixtures.count, 28)
+        XCTAssertEqual(selectedFixtures.count, 29)
 
         for fixture in selectedFixtures {
             let fixtureURL = repoRoot.appendingPathComponent(fixture.localPath)
