@@ -28,8 +28,15 @@
       "upstreamTuistPath": "examples/xcode/generated_app_with_framework_and_tests",
       "category": "conformance",
       "featureTags": ["app", "framework", "extension", "unit-tests", "schemes"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["baseline target graph coverage is not automated yet"]
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //...",
+        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
+      ]
     },
     {
       "name": "generated_ios_app_with_framework_and_resources",

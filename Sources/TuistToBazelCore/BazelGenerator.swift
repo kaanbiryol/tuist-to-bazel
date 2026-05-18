@@ -10,6 +10,7 @@ struct BazelGenerator {
     private var targetsByName: [String: TuistTarget] = [:]
     private var targetsByPathAndName: [String: TuistTarget] = [:]
     private var targetsWithTestConsumers: Set<String> = []
+    private var extensionSafeTargets: Set<String> = []
 
     init(graph: TuistGraph, paths: PathContext) {
         self.graph = graph
@@ -52,10 +53,23 @@ struct BazelGenerator {
                 }
             }
         }
+
+        for target in graph.projects.flatMap(\.targets) where target.product == .appExtension {
+            for dependency in target.dependencies {
+                if let resolved = resolveTargetDependency(dependency),
+                   resolved.product == .framework || resolved.product == .staticFramework {
+                    extensionSafeTargets.insert(targetIdentity(resolved))
+                }
+            }
+        }
     }
 
     private func indexKey(path: String, name: String) -> String {
         "\(URL(fileURLWithPath: path).standardizedFileURL.path)#\(name)"
+    }
+
+    private func targetIdentity(_ target: TuistTarget) -> String {
+        indexKey(path: target.projectPath, name: target.name)
     }
 
     private func pathForBuildFile(_ packagePath: String) -> String {
@@ -264,12 +278,19 @@ struct BazelGenerator {
                 name = "\(target.name)",
                 bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
                 families = ["iphone", "ipad"],
-            \(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
+            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
                 deps = [":\(libraryName(for: target))"],
             \(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
             .replacingOccurrences(of: ")\n \n", with: ")\n")
+    }
+
+    private func extensionSafeAttribute(_ target: TuistTarget, indent: Int) -> String {
+        guard extensionSafeTargets.contains(targetIdentity(target)) else {
+            return ""
+        }
+        return "\(String(repeating: " ", count: indent))extension_safe = True,\n"
     }
 
     private mutating func renderStaticFramework(_ target: TuistTarget, packagePath: String) throws -> String {
@@ -292,7 +313,7 @@ struct BazelGenerator {
             """
             ios_static_framework(
                 name = "\(target.name)",
-                minimum_os_version = "17.0",
+            \(extensionSafeAttribute(target, indent: 4))    minimum_os_version = "17.0",
             \(optionalLabelListAttribute("deps", frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         )

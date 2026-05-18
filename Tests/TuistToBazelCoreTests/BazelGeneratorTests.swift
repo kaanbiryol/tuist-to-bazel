@@ -20,6 +20,20 @@ final class BazelGeneratorTests: XCTestCase {
                             infoPlistPath: "/tmp/Fixture/App/Info.plist",
                             sources: ["/tmp/Fixture/App/Sources/App.swift"],
                             resources: [],
+                            dependencies: [
+                                .project(target: "Framework", path: "/tmp/Fixture/Framework"),
+                                .target(name: "AppExtension"),
+                            ]
+                        ),
+                        TuistTarget(
+                            name: "AppExtension",
+                            product: .appExtension,
+                            bundleId: "dev.tuist.AppExtension",
+                            productName: "AppExtension",
+                            projectPath: "/tmp/Fixture/App",
+                            infoPlistPath: "/tmp/Fixture/App/AppExtension/Info.plist",
+                            sources: ["/tmp/Fixture/App/AppExtension/Extension.swift"],
+                            resources: [],
                             dependencies: [.project(target: "Framework", path: "/tmp/Fixture/Framework")]
                         ),
                         TuistTarget(
@@ -59,9 +73,11 @@ final class BazelGeneratorTests: XCTestCase {
         let rendered = try generator.render().files
 
         XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_application(") == true)
+        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_extension(") == true)
         XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_unit_test(") == true)
         XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("tags = [\"manual\"]") == true)
         XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("test_host = \":App\"") == true)
         XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("ios_framework(") == true)
+        XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("extension_safe = True") == true)
     }
 }
