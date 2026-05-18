@@ -18,6 +18,10 @@ bazel_dep(
     repo_name = "build_bazel_rules_swift",
 )
 bazel_dep(
+    name = "rules_cc",
+    version = "0.2.17",
+)
+bazel_dep(
     name = "rules_ios",
     version = "6.0.1",
     repo_name = "build_bazel_rules_ios",

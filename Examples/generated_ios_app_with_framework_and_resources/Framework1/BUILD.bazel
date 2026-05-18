@@ -30,6 +30,7 @@ ios_framework(
     infoplists = [".bazel/InfoPlists/Framework1-Info.plist"],
     minimum_os_version = "17.0",
     deps = [":Framework1Lib"],
+
     resources = [
         ":_Framework1Resources",
     ],

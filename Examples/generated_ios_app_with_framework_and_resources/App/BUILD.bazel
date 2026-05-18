@@ -1,8 +1,14 @@
 load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
 load("@build_bazel_rules_apple//apple:ios.bzl", "ios_application", "ios_unit_test")
+load("@build_bazel_rules_apple//apple/testing/default_runner:ios_test_runner.bzl", "ios_test_runner")
 load("@build_bazel_rules_apple//apple:resources.bzl", "apple_bundle_import", "apple_resource_bundle", "apple_resource_group")
 
 package(default_visibility = ["//visibility:public"])
+
+ios_test_runner(
+    name = "_ios_test_runner",
+    device_type = "iPhone 15",
+)
 
 apple_resource_group(
     name = "_AppResources",
@@ -60,6 +66,10 @@ swift_library(
     copts = [
         "-enable-testing",
     ],
+    linkopts = [
+        "-framework",
+        "XCTest",
+    ],
     module_name = "AppTests",
     tags = ["manual"],
     testonly = True,
@@ -76,4 +86,5 @@ ios_unit_test(
     deps = [":AppTestsLib"],
     test_host = ":App",
     test_host_is_bundle_loader = True,
+    runner = ":_ios_test_runner",
 )

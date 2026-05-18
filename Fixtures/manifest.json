@@ -112,6 +112,21 @@
       ]
     },
     {
+      "name": "generated_ios_app_with_tests",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_tests",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_tests",
+      "category": "conformance",
+      "featureTags": ["ios", "ui-tests", "unit-tests", "framework"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
+      ]
+    },
+    {
       "name": "generated_ios_app_with_extensions",
       "localPath": "Fixtures/Tuist/generated_ios_app_with_extensions",
       "upstreamTuistPath": "examples/xcode/generated_ios_app_with_extensions",
@@ -309,6 +324,21 @@
       "upstreamTuistPath": "examples/xcode/generated_tvos_app_with_extensions",
       "category": "conformance",
       "featureTags": ["tvos", "extension", "framework"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //..."
+      ]
+    },
+    {
+      "name": "generated_tvos_app_with_uitest",
+      "localPath": "Fixtures/Tuist/generated_tvos_app_with_uitest",
+      "upstreamTuistPath": "examples/xcode/generated_tvos_app_with_uitest",
+      "category": "conformance",
+      "featureTags": ["tvos", "ui-tests"],
       "expectedStatus": "supported",
       "expectedDiagnostics": [],
       "verificationCommands": [

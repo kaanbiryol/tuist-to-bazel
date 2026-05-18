@@ -1,8 +1,7 @@
-load(
-    "@rules_xcodeproj//xcodeproj:defs.bzl",
-    "top_level_target",
-)
+load("@rules_xcodeproj//xcodeproj:defs.bzl", "top_level_target")
 load("@rules_xcodeproj//xcodeproj:xcodeproj.bzl", "xcodeproj")
+
+package(default_visibility = ["//visibility:public"])
 
 xcodeproj(
     name = "xcodeproj",

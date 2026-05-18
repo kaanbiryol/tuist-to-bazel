@@ -212,6 +212,113 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertFalse(rootBuild.contains("ios_unit_test("))
     }
 
+    func testGeneratesIOSUITestRules() throws {
+        let root = URL(fileURLWithPath: "/tmp/UITestFixture")
+        let graph = TuistGraph(
+            name: "UITestFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "AppUITests",
+                            product: .uiTests,
+                            bundleId: "dev.tuist.AppUITests",
+                            productName: "AppUITests",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("UITests/AppUITests.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "App")]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let result = try generator.render()
+        let rootBuild = try XCTUnwrap(result.files["BUILD.bazel"])
+
+        XCTAssertFalse(result.warnings.contains { $0.contains("ui test target") })
+        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:ios.bzl\", \"ios_application\", \"ios_ui_test\")"))
+        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple/testing/default_runner:ios_test_runner.bzl\", \"ios_test_runner\")"))
+        XCTAssertTrue(rootBuild.contains("ios_test_runner(\n    name = \"_ios_test_runner\""))
+        XCTAssertTrue(rootBuild.contains("ios_ui_test("))
+        XCTAssertTrue(rootBuild.contains("name = \"AppUITests\""))
+        XCTAssertTrue(rootBuild.contains("test_host = \":App\""))
+        XCTAssertTrue(rootBuild.contains("runner = \":_ios_test_runner\""))
+        XCTAssertTrue(rootBuild.contains("name = \"AppUITestsLib\""))
+        XCTAssertTrue(rootBuild.contains("testonly = True"))
+        XCTAssertFalse(rootBuild.contains("test_host_is_bundle_loader = True"))
+        XCTAssertFalse(rootBuild.contains("ui test generation is not implemented"))
+    }
+
+    func testGeneratesTVOSUITestRules() throws {
+        let root = URL(fileURLWithPath: "/tmp/TVUITestFixture")
+        let graph = TuistGraph(
+            name: "TVUITestFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            destinations: ["appleTv"],
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "AppUITests",
+                            product: .uiTests,
+                            destinations: ["appleTv"],
+                            bundleId: "dev.tuist.AppUITests",
+                            productName: "AppUITests",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("UITests/AppUITests.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "App")]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let result = try generator.render()
+        let rootBuild = try XCTUnwrap(result.files["BUILD.bazel"])
+
+        XCTAssertFalse(result.warnings.contains { $0.contains("ui test target") })
+        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:tvos.bzl\", \"tvos_application\", \"tvos_ui_test\")"))
+        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple/testing/default_runner:tvos_test_runner.bzl\", \"tvos_test_runner\")"))
+        XCTAssertTrue(rootBuild.contains("tvos_test_runner(\n    name = \"_tvos_test_runner\""))
+        XCTAssertTrue(rootBuild.contains("tvos_ui_test("))
+        XCTAssertTrue(rootBuild.contains("test_host = \":App\""))
+        XCTAssertTrue(rootBuild.contains("runner = \":_tvos_test_runner\""))
+        XCTAssertFalse(rootBuild.contains("ios_ui_test("))
+        XCTAssertFalse(rootBuild.contains("ios_test_runner("))
+    }
+
     func testGeneratesSwiftCompilerPluginsForMacroTargets() throws {
         let root = URL(fileURLWithPath: "/tmp/MacroFixture")
         let graph = TuistGraph(

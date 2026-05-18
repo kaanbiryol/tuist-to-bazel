@@ -133,6 +133,14 @@ public struct AppFontConvertible {
     public let name: String
 }
 
+#if canImport(UIKit)
+public extension UIFont {
+    convenience init?(font: AppFontConvertible, size: CGFloat) {
+        self.init(name: font.name, size: size)
+    }
+}
+#endif
+
 public enum AppFontFamily {
     public enum SFProDisplay {
         public static let bold = AppFontConvertible(name: "SF-Pro-Display-Bold")

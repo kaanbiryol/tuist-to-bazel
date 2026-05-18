@@ -90,7 +90,8 @@ bazelisk build //...
 | `framework` | `swift_library` + `ios_framework` |
 | `staticFramework` / `static_framework` | `swift_library` + `ios_static_framework` |
 | `bundle` | `apple_resource_bundle` |
-| `unitTests` / `unit_tests` | `swift_library` + `ios_unit_test` |
+| `unitTests` / `unit_tests` | `swift_library` + platform unit test rule |
+| `uiTests` / `ui_tests` | `swift_library` + platform UI test rule |
 | `staticLibrary` / `dynamicLibrary` | `swift_library` |
 
 Resource handling includes `apple_resource_group`, `apple_bundle_import` for checked-in `.bundle` directories, generated `Bundle.module` bridges, and narrow Tuist-style accessors for assets, strings, string dictionaries, plists, and fonts.
@@ -102,7 +103,6 @@ Resource handling includes `apple_resource_group`, `apple_bundle_import` for che
 - ODR resource tags are reported as warnings and are not represented in Bazel output.
 - Resource accessor synthesis is intentionally narrow and aimed at common Tuist-generated symbols.
 - The generated minimum iOS version is currently `17.0`.
-- UI test target generation is decoded but not implemented.
 - Objective-C, C, mixed-language targets, build settings, scripts, and custom Tuist build rules are not modeled yet.
 
 ## License

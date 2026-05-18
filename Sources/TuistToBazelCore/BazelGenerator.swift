@@ -6,7 +6,6 @@ struct BazelGenerator {
     private let fileManager = FileManager.default
     private let resourceAccessors = ResourceAccessorGenerator()
     private let swiftPackageParser = SwiftPackageManifestParser()
-    private let iosTestRunnerName = "_ios_test_runner"
     private var warnings: [String] = []
     private var generatedFiles: [String: String] = [:]
     private var targetsByName: [String: TuistTarget] = [:]
@@ -429,9 +428,9 @@ struct BazelGenerator {
             build.addBlock(binaryImport)
         }
 
-        if needsIOSTestRunner(for: targets) {
+        for platform in testRunnerPlatforms(for: targets) {
             build.add()
-            build.addBlock(renderIOSTestRunner())
+            build.addBlock(renderTestRunner(for: platform))
         }
 
         for target in targets.sorted(by: { $0.name < $1.name }) {
@@ -541,7 +540,7 @@ struct BazelGenerator {
         var watchOSRules: Set<String> = []
         var visionOSRules: Set<String> = []
         var swiftRules: Set<String> = []
-        var needsIOSTestRunner = false
+        var testRunnerPlatforms: Set<ApplePlatform> = []
         var needsMixedLanguage = false
         var needsObjC = false
         var needsResources = false
@@ -625,7 +624,7 @@ struct BazelGenerator {
                 switch platform(for: target) {
                 case .ios:
                     iosRules.insert("ios_unit_test")
-                    needsIOSTestRunner = true
+                    testRunnerPlatforms.insert(.ios)
                 case .macOS:
                     macOSRules.insert("macos_unit_test")
                 case .tvOS:
@@ -636,7 +635,20 @@ struct BazelGenerator {
                     visionOSRules.insert("visionos_unit_test")
                 }
             case .uiTests:
-                iosRules.insert("ios_ui_test")
+                let platform = platform(for: target)
+                testRunnerPlatforms.insert(platform)
+                switch platform {
+                case .ios:
+                    iosRules.insert("ios_ui_test")
+                case .macOS:
+                    macOSRules.insert("macos_ui_test")
+                case .tvOS:
+                    tvOSRules.insert("tvos_ui_test")
+                case .watchOS:
+                    watchOSRules.insert("watchos_ui_test")
+                case .visionOS:
+                    visionOSRules.insert("visionos_ui_test")
+                }
             case .staticLibrary, .dynamicLibrary, .bundle, .unsupported:
                 break
             }
@@ -684,8 +696,9 @@ struct BazelGenerator {
             let ruleNames = iosRules.sorted().map(Starlark.quote).joined(separator: ", ")
             loads.append("load(\"@build_bazel_rules_apple//apple:ios.bzl\", \(ruleNames))")
         }
-        if needsIOSTestRunner {
-            loads.append("load(\"@build_bazel_rules_apple//apple/testing/default_runner:ios_test_runner.bzl\", \"ios_test_runner\")")
+        for platform in testRunnerPlatforms.sorted(by: { testRunnerRuleName(for: $0) < testRunnerRuleName(for: $1) }) {
+            let ruleName = testRunnerRuleName(for: platform)
+            loads.append("load(\"@build_bazel_rules_apple//apple/testing/default_runner:\(ruleName).bzl\", \"\(ruleName)\")")
         }
         if !macOSRules.isEmpty {
             let ruleNames = macOSRules.sorted().map(Starlark.quote).joined(separator: ", ")
@@ -863,8 +876,7 @@ struct BazelGenerator {
         case .unitTests:
             return try renderUnitTest(target, packagePath: packagePath)
         case .uiTests:
-            warnings.append("ui test target \(target.name) is decoded but not generated yet")
-            return "# \(target.name) skipped: ui test generation is not implemented yet"
+            return try renderUITest(target, packagePath: packagePath)
         case .unsupported:
             warnings.append("target \(target.name) has an unsupported product and was skipped")
             return "# \(target.name) skipped: unsupported product"
@@ -1394,8 +1406,52 @@ struct BazelGenerator {
             lines.append("    test_host_is_bundle_loader = True,")
         }
         if platform == .ios {
-            lines.append("    runner = \":\(iosTestRunnerName)\",")
+            lines.append("    runner = \":\(testRunnerName(for: platform))\",")
         }
+        lines.append(")")
+
+        return [
+            try renderResourceGroupIfNeeded(target, packagePath: packagePath),
+            try renderSwiftLibrary(target, packagePath: packagePath, name: libraryName(for: target), testonly: true, manual: true, resolved: deps),
+            lines.joined(separator: "\n"),
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
+    }
+
+    private mutating func renderUITest(_ target: TuistTarget, packagePath: String) throws -> String {
+        let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = platform(for: target)
+        let ruleName: String
+        switch platform {
+        case .ios:
+            ruleName = "ios_ui_test"
+        case .macOS:
+            ruleName = "macos_ui_test"
+        case .tvOS:
+            ruleName = "tvos_ui_test"
+        case .watchOS:
+            ruleName = "watchos_ui_test"
+        case .visionOS:
+            ruleName = "visionos_ui_test"
+        }
+        var lines = [
+            "\(ruleName)(",
+            "    name = \"\(target.name)\",",
+            "    bundle_id = \"\(target.bundleId ?? defaultBundleId(for: target))\",",
+        ]
+        if platform == .visionOS {
+            warnings.append("visionOS ui test target \(target.name) is generated as manual because rules_apple 4.5.2 may fail during analysis")
+            lines.append("    tags = [\"manual\"],")
+        }
+        if let infoPlistPath = target.infoPlistPath,
+           let relative = try? paths.pathRelativeToPackage(infoPlistPath, packagePath: packagePath) {
+            lines.append("    infoplists = [\(Starlark.quote(relative))],")
+        }
+        lines.append("    minimum_os_version = \"\(minimumOSVersion(for: platform))\",")
+        lines.append("    deps = [\":\(libraryName(for: target))\"],")
+        if let testHost = deps.testHost {
+            lines.append("    test_host = \"\(testHost.localDescription(in: packagePath))\",")
+        }
+        lines.append("    runner = \":\(testRunnerName(for: platform))\",")
         lines.append(")")
 
         return [
@@ -1421,19 +1477,57 @@ struct BazelGenerator {
         """
     }
 
-    private func needsIOSTestRunner(for targets: [TuistTarget]) -> Bool {
-        targets.contains { target in
-            target.product == .unitTests && platform(for: target) == .ios
+    private func testRunnerPlatforms(for targets: [TuistTarget]) -> [ApplePlatform] {
+        let platforms = targets.reduce(into: Set<ApplePlatform>()) { result, target in
+            if target.product == .unitTests, platform(for: target) == .ios {
+                result.insert(.ios)
+            }
+            if target.product == .uiTests {
+                result.insert(platform(for: target))
+            }
+        }
+        return platforms.sorted { testRunnerRuleName(for: $0) < testRunnerRuleName(for: $1) }
+    }
+
+    private func renderTestRunner(for platform: ApplePlatform) -> String {
+        switch platform {
+        case .ios:
+            """
+            ios_test_runner(
+                name = "\(testRunnerName(for: platform))",
+                device_type = "iPhone 15",
+            )
+            """
+        case .macOS, .tvOS, .watchOS, .visionOS:
+            """
+            \(testRunnerRuleName(for: platform))(
+                name = "\(testRunnerName(for: platform))",
+            )
+            """
         }
     }
 
-    private func renderIOSTestRunner() -> String {
-        """
-        ios_test_runner(
-            name = "\(iosTestRunnerName)",
-            device_type = "iPhone 15",
-        )
-        """
+    private func testRunnerName(for platform: ApplePlatform) -> String {
+        "_\(testRunnerPlatformName(for: platform))_test_runner"
+    }
+
+    private func testRunnerRuleName(for platform: ApplePlatform) -> String {
+        "\(testRunnerPlatformName(for: platform))_test_runner"
+    }
+
+    private func testRunnerPlatformName(for platform: ApplePlatform) -> String {
+        switch platform {
+        case .ios:
+            "ios"
+        case .macOS:
+            "macos"
+        case .tvOS:
+            "tvos"
+        case .watchOS:
+            "watchos"
+        case .visionOS:
+            "visionos"
+        }
     }
 
     private mutating func renderResourceBundle(_ target: TuistTarget, packagePath: String) throws -> String {
@@ -2177,7 +2271,7 @@ struct BazelGenerator {
         }
     }
 
-    private enum ApplePlatform {
+    private enum ApplePlatform: Hashable {
         case ios
         case macOS
         case tvOS
