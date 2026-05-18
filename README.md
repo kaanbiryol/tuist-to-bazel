@@ -33,9 +33,18 @@ The CLI writes:
 - generated support sources under `.bazel/Generated`
 - sanitized generated plist copies under `.bazel/InfoPlists` when needed
 
-## Showcase Fixture
+## Fixture Strategy
 
-The main example is checked in at `Examples/generated_ios_app_with_framework_and_resources`. It is sourced from Tuist's `examples/xcode/generated_ios_app_with_framework_and_resources` fixture at the commit recorded in `.upstream.json`, then converted into a Bazel-compatible project.
+Tuist fixture coverage is pinned in `Fixtures/manifest.json`. The manifest records the upstream Tuist repository, commit, and selected fixture names. `scripts/update-tuist-fixtures.sh` uses git sparse checkout to copy only those upstream `examples/xcode` fixtures into `Fixtures/Tuist`.
+
+This repo intentionally does not use a git submodule for Tuist fixtures. The synced fixture corpus is committed as ordinary files, which keeps CI and local setup simple: clone this repo and the pinned fixtures are already present. Refreshing fixtures is an explicit update step that produces normal reviewable diffs.
+
+Fixture directories have separate roles:
+
+- `Examples/`: polished, fully supported showcases with generated Bazel output checked in.
+- `Fixtures/Tuist/`: curated upstream Tuist `examples/xcode` fixtures used for migration conformance work.
+
+The main example is checked in at `Examples/generated_ios_app_with_framework_and_resources`. It is sourced from Tuist's `examples/xcode/generated_ios_app_with_framework_and_resources` fixture at the manifest commit, then converted into a Bazel-compatible project.
 
 Refresh the checked-in Tuist fixtures with:
 
@@ -44,6 +53,12 @@ scripts/update-tuist-fixtures.sh
 ```
 
 Set `TUIST_COMMIT=<sha>` to refresh from a different Tuist revision. The script preserves generated Bazel output in the showcase fixture and regenerates it when `tuist` is available locally.
+
+The updater does three things:
+
+- sparse-checks out only the selected upstream fixture directories from the pinned Tuist commit
+- syncs the selected fixture set into `Fixtures/Tuist` and removes unselected local fixture directories
+- refreshes the supported showcase under `Examples/`
 
 It covers a fuller Tuist graph than the original small fixture:
 
@@ -65,8 +80,6 @@ bazelisk build //...
 ```
 
 `bazelisk test //App:AppTests` currently builds the test bundle but the local simulator runner exits with status 15 in this environment immediately after creating the simulator, before XCTest output is produced.
-
-The smaller legacy Tuist fixture now lives under `Tests/Fixtures/TuistProjects/generated_app_with_framework_and_tests`.
 
 ## Supported Generation
 

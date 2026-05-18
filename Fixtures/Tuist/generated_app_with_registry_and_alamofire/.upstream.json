@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/tuist/tuist",
+  "commit": "2be1eb0076143ebc60e86fff7b5c334c0808baa3",
+  "sourcePath": "examples/xcode/generated_app_with_registry_and_alamofire",
+  "generatedBazelOutput": false,
+  "refreshScript": "scripts/update-tuist-fixtures.sh",
+  "notes": []
+}

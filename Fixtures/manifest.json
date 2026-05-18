@@ -1,0 +1,259 @@
+{
+  "schemaVersion": 1,
+  "upstream": {
+    "repository": "https://github.com/tuist/tuist",
+    "commit": "2be1eb0076143ebc60e86fff7b5c334c0808baa3"
+  },
+  "corpus": {
+    "name": "tuist-xcode-examples",
+    "upstreamPath": "examples/xcode",
+    "localPath": "Fixtures/Tuist",
+    "syncStrategy": "selected-fixtures"
+  },
+  "defaultFixture": {
+    "category": "conformance",
+    "expectedStatus": "planned",
+    "expectedDiagnostics": [
+      "selected for future conformance coverage"
+    ],
+    "verificationCommands": [
+      "tuist graph -f json --no-open --output-path <tmp>/graph",
+      "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture> --output <fixture> --force"
+    ]
+  },
+  "fixtures": [
+    {
+      "name": "generated_app_with_framework_and_tests",
+      "localPath": "Fixtures/Tuist/generated_app_with_framework_and_tests",
+      "upstreamTuistPath": "examples/xcode/generated_app_with_framework_and_tests",
+      "category": "conformance",
+      "featureTags": ["app", "framework", "extension", "unit-tests", "schemes"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["baseline target graph coverage is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_framework_and_resources",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_framework_and_resources",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_framework_and_resources",
+      "category": "conformance",
+      "featureTags": ["ios", "framework", "static-framework", "resources", "bundles", "localized-resources", "privacy-manifest", "odr"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": ["ODR tags are reported as warnings"]
+    },
+    {
+      "name": "generated_ios_app_with_static_frameworks_with_resources",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_static_frameworks_with_resources",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_static_frameworks_with_resources",
+      "category": "conformance",
+      "featureTags": ["ios", "static-framework", "resources"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["static framework resource coverage is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_static_libraries",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_static_libraries",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_static_libraries",
+      "category": "conformance",
+      "featureTags": ["ios", "static-library", "linking"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["static library coverage is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_xcframeworks",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_xcframeworks",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_xcframeworks",
+      "category": "conformance",
+      "featureTags": ["ios", "xcframework", "linker-settings"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["xcframework dependency support is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_sdk",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_sdk",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_sdk",
+      "category": "conformance",
+      "featureTags": ["ios", "sdk", "weak-linking", "library", "xctest"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["SDK dependency support is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_extensions",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_extensions",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_extensions",
+      "category": "conformance",
+      "featureTags": ["ios", "app-extension", "messages-extension", "sticker-extension", "extensionkit", "bundle"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["extension product coverage is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_headers",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_headers",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_headers",
+      "category": "conformance",
+      "featureTags": ["ios", "headers", "framework"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["header visibility coverage is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_framework_buildable_folders_and_xcassets",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_framework_buildable_folders_and_xcassets",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_framework_buildable_folders_and_xcassets",
+      "category": "conformance",
+      "featureTags": ["ios", "buildable-folders", "xcassets", "framework"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["buildable folder coverage is not automated yet"]
+    },
+    {
+      "name": "generated_app_with_alamofire",
+      "localPath": "Fixtures/Tuist/generated_app_with_alamofire",
+      "upstreamTuistPath": "examples/xcode/generated_app_with_alamofire",
+      "category": "conformance",
+      "featureTags": ["spm", "external", "tests"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["third-party dependency support is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_remote_swift_package",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_remote_swift_package",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_remote_swift_package",
+      "category": "conformance",
+      "featureTags": ["ios", "spm", "remote-package"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["remote SwiftPM package support is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_local_swift_package",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_local_swift_package",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_local_swift_package",
+      "category": "conformance",
+      "featureTags": ["ios", "spm", "local-package"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["local SwiftPM package support is not automated yet"]
+    },
+    {
+      "name": "generated_app_with_local_spm_module_with_remote_dependencies",
+      "localPath": "Fixtures/Tuist/generated_app_with_local_spm_module_with_remote_dependencies",
+      "upstreamTuistPath": "examples/xcode/generated_app_with_local_spm_module_with_remote_dependencies",
+      "category": "conformance",
+      "featureTags": ["spm", "local-package", "remote-package"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["local SwiftPM package dependency support is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_local_binary_swift_package",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_local_binary_swift_package",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_local_binary_swift_package",
+      "category": "conformance",
+      "featureTags": ["ios", "spm", "binary-package", "xcframework"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["binary SwiftPM package support is not automated yet"]
+    },
+    {
+      "name": "generated_app_with_google_maps",
+      "localPath": "Fixtures/Tuist/generated_app_with_google_maps",
+      "upstreamTuistPath": "examples/xcode/generated_app_with_google_maps",
+      "category": "conformance",
+      "featureTags": ["spm", "external", "xcframework", "framework"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["external binary package support is not automated yet"]
+    },
+    {
+      "name": "generated_framework_with_macro_and_plugin_packages",
+      "localPath": "Fixtures/Tuist/generated_framework_with_macro_and_plugin_packages",
+      "upstreamTuistPath": "examples/xcode/generated_framework_with_macro_and_plugin_packages",
+      "category": "conformance",
+      "featureTags": ["macos", "spm", "macro", "plugin", "external"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["macro and plugin package support is not automated yet"]
+    },
+    {
+      "name": "generated_app_with_registry_and_alamofire",
+      "localPath": "Fixtures/Tuist/generated_app_with_registry_and_alamofire",
+      "upstreamTuistPath": "examples/xcode/generated_app_with_registry_and_alamofire",
+      "category": "conformance",
+      "featureTags": ["spm", "registry", "external"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["SwiftPM registry support is not automated yet"]
+    },
+    {
+      "name": "generated_multiplatform_app",
+      "localPath": "Fixtures/Tuist/generated_multiplatform_app",
+      "upstreamTuistPath": "examples/xcode/generated_multiplatform_app",
+      "category": "conformance",
+      "featureTags": ["multiplatform", "ios", "macos", "watchos", "conditional-dependencies"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["multiplatform coverage is not automated yet"]
+    },
+    {
+      "name": "generated_ios_app_with_watch_application",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_watch_application",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_watch_application",
+      "category": "conformance",
+      "featureTags": ["ios", "watchos", "watch-app", "watch-extension"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["watchOS product coverage is not automated yet"]
+    },
+    {
+      "name": "generated_tvos_app_with_extensions",
+      "localPath": "Fixtures/Tuist/generated_tvos_app_with_extensions",
+      "upstreamTuistPath": "examples/xcode/generated_tvos_app_with_extensions",
+      "category": "conformance",
+      "featureTags": ["tvos", "extension", "framework"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["tvOS product coverage is not automated yet"]
+    },
+    {
+      "name": "generated_visionos_app",
+      "localPath": "Fixtures/Tuist/generated_visionos_app",
+      "upstreamTuistPath": "examples/xcode/generated_visionos_app",
+      "category": "conformance",
+      "featureTags": ["visionos", "app", "unit-tests"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["visionOS product coverage is not automated yet"]
+    },
+    {
+      "name": "generated_macos_app_with_extensions",
+      "localPath": "Fixtures/Tuist/generated_macos_app_with_extensions",
+      "upstreamTuistPath": "examples/xcode/generated_macos_app_with_extensions",
+      "category": "conformance",
+      "featureTags": ["macos", "app-extension", "extensionkit", "copy-files", "entitlements"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["macOS extension coverage is not automated yet"]
+    },
+    {
+      "name": "generated_command_line_tool_with_dynamic_library",
+      "localPath": "Fixtures/Tuist/generated_command_line_tool_with_dynamic_library",
+      "upstreamTuistPath": "examples/xcode/generated_command_line_tool_with_dynamic_library",
+      "category": "conformance",
+      "featureTags": ["macos", "command-line-tool", "dynamic-library"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["command line product coverage is not automated yet"]
+    },
+    {
+      "name": "generated_multiplatform_\u00b5Feature_unit_tests_with_explicit_dependencies",
+      "localPath": "Fixtures/Tuist/generated_multiplatform_\u00b5Feature_unit_tests_with_explicit_dependencies",
+      "upstreamTuistPath": "examples/xcode/generated_multiplatform_\u00b5Feature_unit_tests_with_explicit_dependencies",
+      "category": "conformance",
+      "featureTags": ["multiplatform", "microfeature", "unit-tests", "explicit-dependencies"],
+      "expectedStatus": "planned",
+      "expectedDiagnostics": ["microfeature workspace coverage is not automated yet"]
+    }
+  ],
+  "showcases": [
+    {
+      "name": "generated_ios_app_with_framework_and_resources",
+      "sourceFixture": "generated_ios_app_with_framework_and_resources",
+      "localPath": "Examples/generated_ios_app_with_framework_and_resources",
+      "category": "example",
+      "featureTags": ["ios", "framework", "static-framework", "resources", "bundles", "localized-resources", "privacy-manifest"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture> --output <fixture> --force",
+        "bazelisk query //...",
+        "bazelisk build //..."
+      ]
+    }
+  ]
+}
