@@ -9,13 +9,17 @@ enum Starlark {
     }
 
     static func list(_ values: [String], indent: Int = 4) -> String {
+        orderedList(values.sorted(), indent: indent)
+    }
+
+    static func orderedList(_ values: [String], indent: Int = 4) -> String {
         if values.isEmpty {
             return "[]"
         }
 
         let padding = String(repeating: " ", count: indent)
         let itemPadding = String(repeating: " ", count: indent + 4)
-        let body = values.sorted().map { "\(itemPadding)\(quote($0))," }.joined(separator: "\n")
+        let body = values.map { "\(itemPadding)\(quote($0))," }.joined(separator: "\n")
         return "[\n\(body)\n\(padding)]"
     }
 

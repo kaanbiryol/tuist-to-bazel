@@ -19,8 +19,21 @@ struct TuistTarget {
     let projectPath: String
     let infoPlistPath: String?
     let sources: [String]
+    var headers: TuistHeaders = .empty
     let resources: [TuistResource]
     let dependencies: [TuistDependency]
+}
+
+struct TuistHeaders {
+    let publicHeaders: [String]
+    let privateHeaders: [String]
+    let projectHeaders: [String]
+
+    static let empty = TuistHeaders(publicHeaders: [], privateHeaders: [], projectHeaders: [])
+
+    var all: [String] {
+        publicHeaders + privateHeaders + projectHeaders
+    }
 }
 
 enum ProductType: String {
@@ -88,6 +101,6 @@ enum TuistDependency {
     case xcframework(path: String)
     case library(path: String, publicHeaders: String?, swiftModuleMap: String?)
     case package(product: String)
-    case sdk(name: String)
+    case sdk(name: String, status: String?)
     case xctest
 }

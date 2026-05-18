@@ -255,6 +255,79 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rootBuild.contains("\":_MyStaticLibraryImport\""))
     }
 
+    func testGeneratesSDKAndMixedLanguageAttributes() throws {
+        let root = URL(fileURLWithPath: "/tmp/SDKFixture")
+        let staticProject = root.appendingPathComponent("Modules/StaticFramework", isDirectory: true)
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "MyTestFramework",
+                            product: .framework,
+                            bundleId: "dev.tuist.MyTestFramework",
+                            productName: "MyTestFramework",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("MyTestFramework/MyTestHelper.swift").path],
+                            resources: [],
+                            dependencies: [.xctest]
+                        ),
+                    ]
+                ),
+                TuistProject(
+                    name: "StaticFramework",
+                    path: staticProject.path,
+                    targets: [
+                        TuistTarget(
+                            name: "StaticFramework",
+                            product: .staticFramework,
+                            bundleId: "dev.tuist.StaticFramework",
+                            productName: "StaticFramework",
+                            projectPath: staticProject.path,
+                            infoPlistPath: nil,
+                            sources: [
+                                staticProject.appendingPathComponent("Sources/FrameworkClass.swift").path,
+                                staticProject.appendingPathComponent("Sources/MyObjcppClass.mm").path,
+                            ],
+                            headers: TuistHeaders(
+                                publicHeaders: [
+                                    staticProject.appendingPathComponent("Sources/MyObjcppClass.h").path,
+                                    staticProject.appendingPathComponent("Sources/StaticFramework.h").path,
+                                ],
+                                privateHeaders: [],
+                                projectHeaders: []
+                            ),
+                            resources: [],
+                            dependencies: [.sdk(name: "libc++.tbd", status: "required")]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        let staticBuild = try XCTUnwrap(rendered["Modules/StaticFramework/BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("infoplists = [\".bazel/InfoPlists/MyTestFramework-Info.plist\"]"))
+        XCTAssertTrue(rootBuild.contains("always_include_developer_search_paths = True"))
+        XCTAssertTrue(rootBuild.contains("\"-framework\""))
+        XCTAssertTrue(rootBuild.contains("\"XCTest\""))
+        XCTAssertTrue(staticBuild.contains("mixed_language_library("))
+        XCTAssertTrue(staticBuild.contains("clang_srcs ="))
+        XCTAssertTrue(staticBuild.contains("Sources/MyObjcppClass.mm"))
+        XCTAssertTrue(staticBuild.contains("hdrs ="))
+        XCTAssertTrue(staticBuild.contains("Sources/MyObjcppClass.h"))
+        XCTAssertTrue(staticBuild.contains("sdk_dylibs ="))
+        XCTAssertTrue(staticBuild.contains("\"c++\""))
+        XCTAssertFalse(staticBuild.contains("umbrella_header ="))
+    }
+
     private func writeXCFrameworkInfo(at url: URL, libraryPath: String) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         let plist: [String: Any] = [

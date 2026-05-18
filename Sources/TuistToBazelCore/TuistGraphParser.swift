@@ -77,6 +77,7 @@ struct TuistGraphParser {
             projectPath: projectPath,
             infoPlistPath: parseInfoPlist(object["infoPlist"]),
             sources: parsePathArray(object["sources"]),
+            headers: parseHeaders(object["headers"]),
             resources: parseResources(object["resources"]),
             dependencies: parseDependencies(object["dependencies"])
         )
@@ -112,6 +113,18 @@ struct TuistGraphParser {
         }
     }
 
+    private func parseHeaders(_ value: JSONValue?) -> TuistHeaders {
+        TuistHeaders(
+            publicHeaders: parseHeaderGroup(value?["public"]),
+            privateHeaders: parseHeaderGroup(value?["private"]),
+            projectHeaders: parseHeaderGroup(value?["project"])
+        )
+    }
+
+    private func parseHeaderGroup(_ value: JSONValue?) -> [String] {
+        value?.arrayValue?.compactMap(\.stringValue) ?? []
+    }
+
     private func parseTags(_ value: JSONValue?) -> [String] {
         value?.arrayValue?.compactMap(\.stringValue) ?? []
     }
@@ -143,7 +156,7 @@ struct TuistGraphParser {
                 return .package(product: product)
             }
             if let sdk = element["sdk"]?.objectValue, let name = sdk["name"]?.stringValue {
-                return .sdk(name: name)
+                return .sdk(name: name, status: sdk["status"]?.stringValue)
             }
             if element["xctest"] != nil {
                 return .xctest
