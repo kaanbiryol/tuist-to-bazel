@@ -1014,6 +1014,117 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rootBuild.contains("minimum_os_version = \"14.0\""))
     }
 
+    func testGeneratesWatchApplicationEmbeddingRules() throws {
+        let root = URL(fileURLWithPath: "/tmp/WatchAppFixture")
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            destinations: ["iPhone", "iPad"],
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("App/Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .target(name: "WatchApp"),
+                                .target(name: "Framework_a_ios"),
+                            ]
+                        ),
+                        TuistTarget(
+                            name: "Framework_a_ios",
+                            product: .framework,
+                            destinations: ["iPhone", "iPad"],
+                            bundleId: "dev.tuist.framework.a",
+                            productName: "FrameworkA",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "Framework_a_watchos",
+                            product: .framework,
+                            destinations: ["appleWatch"],
+                            bundleId: "dev.tuist.framework.a",
+                            productName: "FrameworkA",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "WatchApp",
+                            product: .app,
+                            destinations: ["appleWatch"],
+                            bundleId: "dev.tuist.App.watchkitapp",
+                            productName: "WatchApp",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            infoPlistEntries: [
+                                "CFBundleVersion": .string("1.0"),
+                                "WKCompanionAppBundleIdentifier": .string("dev.tuist.App"),
+                            ],
+                            sources: [root.appendingPathComponent("WatchApp/Sources/WatchApp.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .target(name: "WatchWidgetExtension"),
+                                .target(name: "Framework_a_watchos"),
+                            ]
+                        ),
+                        TuistTarget(
+                            name: "WatchWidgetExtension",
+                            product: .appExtension,
+                            destinations: ["appleWatch"],
+                            bundleId: "dev.tuist.App.watchkitapp.widgetExtension",
+                            productName: "WatchWidgetExtension",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            infoPlistEntries: [
+                                "NSExtension": .dictionary([
+                                    "NSExtensionPointIdentifier": .string("com.apple.widgetkit-extension"),
+                                ]),
+                            ],
+                            sources: [root.appendingPathComponent("WatchWidgetExtension/Sources/Widget.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "Framework_a_watchos")]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("watch_application = \":WatchApp\""))
+        XCTAssertTrue(rootBuild.contains("watchos_application(\n    name = \"WatchApp\""))
+        XCTAssertTrue(rootBuild.contains("watchos_extension(\n    name = \"WatchWidgetExtension\""))
+        XCTAssertTrue(rootBuild.contains("application_extension = True"))
+        XCTAssertTrue(rootBuild.contains("bundle_name = \"FrameworkA\""))
+        XCTAssertFalse(rootBuild.contains("Framework_a_iosLib"))
+        XCTAssertFalse(rootBuild.contains("Framework_a_watchosLib"))
+
+        let appLib = try XCTUnwrap(firstRule(named: "AppLib", in: rootBuild))
+        XCTAssertFalse(appLib.contains("WatchAppLib"))
+
+        let watchAppPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/WatchApp-Info.plist"])
+        XCTAssertTrue(watchAppPlist.contains("WKCompanionAppBundleIdentifier"))
+        let extensionPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/WatchWidgetExtension-Info.plist"])
+        XCTAssertTrue(extensionPlist.contains("<key>CFBundleVersion</key>"))
+        XCTAssertTrue(extensionPlist.contains("<string>1.0</string>"))
+    }
+
     func testGeneratesBundleModuleAccessorWhenResourceSourceUsesBundleModule() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1227,6 +1338,12 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(wrapperPlist.contains("dev.tuist.App2.NotificationServiceExtension"))
         let appIntentPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/AppIntentExtension-Info.plist"])
         XCTAssertTrue(appIntentPlist.contains("com.apple.appintents-extension"))
+    }
+
+    private func firstRule(named name: String, in buildFile: String) -> String? {
+        buildFile.components(separatedBy: "\n\n").first { block in
+            block.contains("name = \"\(name)\"")
+        }
     }
 
     private func writeXCFrameworkInfo(at url: URL, libraryPath: String) throws {

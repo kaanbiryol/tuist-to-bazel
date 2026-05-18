@@ -292,8 +292,16 @@
       "upstreamTuistPath": "examples/xcode/generated_ios_app_with_watch_application",
       "category": "conformance",
       "featureTags": ["ios", "watchos", "watch-app", "watch-extension"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["watchOS product coverage is not automated yet"]
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [
+        "watchOS XCTest bundles build, but rules_apple's default watchOS runner exits 1 so runtime tests are not a verification command"
+      ],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //..."
+      ]
     },
     {
       "name": "generated_tvos_app_with_extensions",

@@ -72,6 +72,8 @@ struct TuistGraphParser {
 
         let product = ProductType(rawGraphValue: object["product"]?.stringValue ?? "unsupported")
         let buildableFolderFiles = parseBuildableFolderFiles(object["buildableFolders"])
+        let settingsInfoPlistEntries = parseSettingsInfoPlistEntries(object["settings"])
+        let explicitInfoPlistEntries = parseInfoPlistEntries(object["infoPlist"])
         return TuistTarget(
             name: name,
             product: product,
@@ -80,7 +82,7 @@ struct TuistGraphParser {
             productName: object["productName"]?.stringValue ?? sanitizedModuleName(name),
             projectPath: projectPath,
             infoPlistPath: parseInfoPlist(object["infoPlist"]),
-            infoPlistEntries: parseInfoPlistEntries(object["infoPlist"]),
+            infoPlistEntries: settingsInfoPlistEntries.merging(explicitInfoPlistEntries) { _, explicit in explicit },
             sources: orderedUnique(parsePathArray(object["sources"]) + buildableFolderFiles.filter(isBuildableSource)),
             headers: parseHeaders(object["headers"]),
             resources: parseResources(object["resources"]) + buildableFolderFiles.filter(isBuildableResource).map {
@@ -151,6 +153,43 @@ struct TuistGraphParser {
             })
         }
         return nil
+    }
+
+    private func parseSettingsInfoPlistEntries(_ value: JSONValue?) -> [String: PlistValue] {
+        guard let baseSettings = value?["base"]?.objectValue else {
+            return [:]
+        }
+        var entries: [String: PlistValue] = [:]
+        for (key, value) in baseSettings {
+            if key.hasPrefix("INFOPLIST_KEY_"),
+               let parsed = parseBuildSettingPlistValue(value) {
+                entries[String(key.dropFirst("INFOPLIST_KEY_".count))] = parsed
+            }
+        }
+        if let version = parseBuildSettingPlistValue(baseSettings["CURRENT_PROJECT_VERSION"]) {
+            entries["CFBundleVersion"] = version
+        }
+        if let version = parseBuildSettingPlistValue(baseSettings["MARKETING_VERSION"]) {
+            entries["CFBundleShortVersionString"] = version
+        }
+        return entries
+    }
+
+    private func parseBuildSettingPlistValue(_ value: JSONValue?) -> PlistValue? {
+        if let string = value?["string"]?["_0"]?.stringValue {
+            switch string {
+            case "YES":
+                return .bool(true)
+            case "NO":
+                return .bool(false)
+            default:
+                return .string(string)
+            }
+        }
+        if let values = value?["array"]?["_0"]?.arrayValue {
+            return .array(values.compactMap(parsePlistValue))
+        }
+        return parsePlistValue(value)
     }
 
     private func parsePathArray(_ value: JSONValue?) -> [String] {

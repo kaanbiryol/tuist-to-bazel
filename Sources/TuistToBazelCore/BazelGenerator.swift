@@ -532,6 +532,7 @@ struct BazelGenerator {
         var iosRules: Set<String> = []
         var macOSRules: Set<String> = []
         var tvOSRules: Set<String> = []
+        var watchOSRules: Set<String> = []
         var swiftRules: Set<String> = []
         var needsMixedLanguage = false
         var needsObjC = false
@@ -556,13 +557,33 @@ struct BazelGenerator {
                 switch platform(for: target) {
                 case .tvOS:
                     tvOSRules.insert("tvos_application")
+                case .watchOS:
+                    watchOSRules.insert("watchos_application")
                 case .ios, .macOS:
                     iosRules.insert("ios_application")
                 }
             case .appExtension:
-                iosRules.insert("ios_extension")
+                switch platform(for: target) {
+                case .ios:
+                    iosRules.insert("ios_extension")
+                case .macOS:
+                    macOSRules.insert("macos_extension")
+                case .tvOS:
+                    tvOSRules.insert("tvos_extension")
+                case .watchOS:
+                    watchOSRules.insert("watchos_extension")
+                }
             case .extensionKitExtension:
-                iosRules.insert("ios_extension")
+                switch platform(for: target) {
+                case .ios:
+                    iosRules.insert("ios_extension")
+                case .macOS:
+                    macOSRules.insert("macos_extension")
+                case .tvOS:
+                    tvOSRules.insert("tvos_extension")
+                case .watchOS:
+                    watchOSRules.insert("watchos_extension")
+                }
             case .framework:
                 switch platform(for: target) {
                 case .ios:
@@ -571,6 +592,8 @@ struct BazelGenerator {
                     macOSRules.insert("macos_framework")
                 case .tvOS:
                     tvOSRules.insert("tvos_framework")
+                case .watchOS:
+                    watchOSRules.insert("watchos_framework")
                 }
             case .messagesExtension:
                 iosRules.insert("ios_imessage_extension")
@@ -583,7 +606,16 @@ struct BazelGenerator {
             case .macro:
                 break
             case .unitTests:
-                iosRules.insert("ios_unit_test")
+                switch platform(for: target) {
+                case .ios:
+                    iosRules.insert("ios_unit_test")
+                case .macOS:
+                    macOSRules.insert("macos_unit_test")
+                case .tvOS:
+                    tvOSRules.insert("tvos_unit_test")
+                case .watchOS:
+                    watchOSRules.insert("watchos_unit_test")
+                }
             case .uiTests:
                 iosRules.insert("ios_ui_test")
             case .staticLibrary, .dynamicLibrary, .bundle, .unsupported:
@@ -640,6 +672,10 @@ struct BazelGenerator {
         if !tvOSRules.isEmpty {
             let ruleNames = tvOSRules.sorted().map(Starlark.quote).joined(separator: ", ")
             loads.append("load(\"@build_bazel_rules_apple//apple:tvos.bzl\", \(ruleNames))")
+        }
+        if !watchOSRules.isEmpty {
+            let ruleNames = watchOSRules.sorted().map(Starlark.quote).joined(separator: ", ")
+            loads.append("load(\"@build_bazel_rules_apple//apple:watchos.bzl\", \(ruleNames))")
         }
         if needsResources {
             loads.append("load(\"@build_bazel_rules_apple//apple:resources.bzl\", \"apple_bundle_import\", \"apple_resource_bundle\", \"apple_resource_group\")")
@@ -818,6 +854,9 @@ struct BazelGenerator {
         case .tvOS:
             ruleName = "tvos_application"
             families = "    families = [\"tv\"],\n"
+        case .watchOS:
+            ruleName = "watchos_application"
+            families = ""
         case .ios, .macOS:
             ruleName = "ios_application"
             families = "    families = [\"iphone\", \"ipad\"],\n"
@@ -829,20 +868,32 @@ struct BazelGenerator {
             \(ruleName)(
                 name = "\(target.name)",
                 bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
-            \(families)\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
+            \(families)\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
                 deps = [":\(libraryName(for: target))"],
-            \(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("extensions", deps.extensionDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
+            \(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelAttribute("watch_application", deps.watchApplication, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("extensions", deps.extensionDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
             .replacingOccurrences(of: ")\n \n", with: ")\n")
     }
 
     private mutating func renderExtension(_ target: TuistTarget, packagePath: String) throws -> String {
-        try renderExtensionRule(
+        let platform = platform(for: target)
+        let ruleName: String
+        switch platform {
+        case .ios:
+            ruleName = "ios_extension"
+        case .macOS:
+            ruleName = "macos_extension"
+        case .tvOS:
+            ruleName = "tvos_extension"
+        case .watchOS:
+            ruleName = "watchos_extension"
+        }
+        return try renderExtensionRule(
             target,
             packagePath: packagePath,
-            ruleName: "ios_extension",
-            extraAttributes: target.product == .extensionKitExtension ? "    extensionkit_extension = True,\n" : ""
+            ruleName: ruleName,
+            extraAttributes: extensionExtraAttributes(for: target, platform: platform)
         )
     }
 
@@ -857,6 +908,7 @@ struct BazelGenerator {
         extraAttributes: String = ""
     ) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = platform(for: target)
         return [
             try renderResourceGroupIfNeeded(target, packagePath: packagePath),
             try renderSwiftLibrary(target, packagePath: packagePath, name: libraryName(for: target), testonly: false, manual: true, resolved: deps),
@@ -864,6 +916,7 @@ struct BazelGenerator {
                 target,
                 packagePath: packagePath,
                 deps: deps,
+                platform: platform,
                 ruleName: ruleName,
                 name: target.name,
                 bundleId: target.bundleId ?? defaultBundleId(for: target),
@@ -878,6 +931,7 @@ struct BazelGenerator {
         _ target: TuistTarget,
         packagePath: String,
         deps: ResolvedDependencies,
+        platform: ApplePlatform,
         ruleName: String,
         name: String,
         bundleId: String,
@@ -889,8 +943,7 @@ struct BazelGenerator {
         \(ruleName)(
             name = "\(name)",
             bundle_id = "\(bundleId)",
-        \(executableName)\(extraAttributes)    families = ["iphone", "ipad"],
-        \(infoplistsAttribute(infoPlistTarget, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
+        \(executableName)\(extraAttributes)\(familiesAttribute(for: platform, indent: 4))\(infoplistsAttribute(infoPlistTarget, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
             deps = [":\(libraryName(for: target))"],
         \(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
         """
@@ -922,15 +975,28 @@ struct BazelGenerator {
         switch target.product {
         case .appExtension, .extensionKitExtension:
             let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+            let platform = platform(for: target)
+            let ruleName: String
+            switch platform {
+            case .ios:
+                ruleName = "ios_extension"
+            case .macOS:
+                ruleName = "macos_extension"
+            case .tvOS:
+                ruleName = "tvos_extension"
+            case .watchOS:
+                ruleName = "watchos_extension"
+            }
             return renderExtensionBundleRule(
                 target,
                 packagePath: packagePath,
                 deps: deps,
-                ruleName: "ios_extension",
+                platform: platform,
+                ruleName: ruleName,
                 name: consumer.wrapperName,
                 bundleId: consumer.bundleId,
                 infoPlistTarget: wrapper,
-                extraAttributes: target.product == .extensionKitExtension ? "    extensionkit_extension = True,\n" : ""
+                extraAttributes: extensionExtraAttributes(for: target, platform: platform)
             )
         case .messagesExtension:
             let deps = try resolvedDependencies(for: target, packagePath: packagePath)
@@ -938,6 +1004,7 @@ struct BazelGenerator {
                 target,
                 packagePath: packagePath,
                 deps: deps,
+                platform: .ios,
                 ruleName: "ios_imessage_extension",
                 name: consumer.wrapperName,
                 bundleId: consumer.bundleId,
@@ -981,6 +1048,17 @@ struct BazelGenerator {
             resources: target.resources,
             dependencies: target.dependencies
         )
+    }
+
+    private func extensionExtraAttributes(for target: TuistTarget, platform: ApplePlatform) -> String {
+        var attributes = ""
+        if target.product == .extensionKitExtension {
+            attributes += "    extensionkit_extension = True,\n"
+        }
+        if platform == .watchOS && target.product == .appExtension {
+            attributes += "    application_extension = True,\n"
+        }
+        return attributes
     }
 
     private mutating func renderStickerPackExtensionBundle(
@@ -1058,21 +1136,26 @@ struct BazelGenerator {
             return try renderMacOSFramework(target, packagePath: packagePath)
         case .tvOS:
             return try renderTVOSFramework(target, packagePath: packagePath)
+        case .watchOS:
+            return try renderWatchOSFramework(target, packagePath: packagePath)
         }
     }
 
     private mutating func renderIOSFramework(_ target: TuistTarget, packagePath: String) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = ApplePlatform.ios
+        let libraryBlock = try frameworkLibraryBlockIfNeeded(target, packagePath: packagePath, deps: deps)
+        let productDeps = hasSwiftLibrary(for: target) ? "    deps = [\":\(libraryName(for: target))\"],\n" : ""
         return [
             try renderResourceGroupIfNeeded(target, packagePath: packagePath),
-            try renderSwiftLibrary(target, packagePath: packagePath, name: libraryName(for: target), testonly: false, manual: true, resolved: deps),
+            libraryBlock,
             """
             ios_framework(
                 name = "\(target.name)",
-                bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+            \(bundleNameAttribute(target, indent: 4))    bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
                 families = ["iphone", "ipad"],
-            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
-                deps = [":\(libraryName(for: target))"],
+            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
+            \(productDeps)\(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))
             \(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
@@ -1081,15 +1164,18 @@ struct BazelGenerator {
 
     private mutating func renderMacOSFramework(_ target: TuistTarget, packagePath: String) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = ApplePlatform.macOS
+        let libraryBlock = try frameworkLibraryBlockIfNeeded(target, packagePath: packagePath, deps: deps)
+        let productDeps = hasSwiftLibrary(for: target) ? "    deps = [\":\(libraryName(for: target))\"],\n" : ""
         return [
             try renderResourceGroupIfNeeded(target, packagePath: packagePath),
-            try renderSwiftLibrary(target, packagePath: packagePath, name: libraryName(for: target), testonly: false, manual: true, resolved: deps),
+            libraryBlock,
             """
             macos_framework(
                 name = "\(target.name)",
-                bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
-            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "14.0",
-                deps = [":\(libraryName(for: target))"],
+            \(bundleNameAttribute(target, indent: 4))    bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
+            \(productDeps)\(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))
             \(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
@@ -1098,20 +1184,54 @@ struct BazelGenerator {
 
     private mutating func renderTVOSFramework(_ target: TuistTarget, packagePath: String) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = ApplePlatform.tvOS
+        let libraryBlock = try frameworkLibraryBlockIfNeeded(target, packagePath: packagePath, deps: deps)
+        let productDeps = hasSwiftLibrary(for: target) ? "    deps = [\":\(libraryName(for: target))\"],\n" : ""
         return [
             try renderResourceGroupIfNeeded(target, packagePath: packagePath),
-            try renderSwiftLibrary(target, packagePath: packagePath, name: libraryName(for: target), testonly: false, manual: true, resolved: deps),
+            libraryBlock,
             """
             tvos_framework(
                 name = "\(target.name)",
-                bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+            \(bundleNameAttribute(target, indent: 4))    bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
                 families = ["tv"],
-            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
-                deps = [":\(libraryName(for: target))"],
+            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
+            \(productDeps)\(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))
             \(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
             .replacingOccurrences(of: ")\n \n", with: ")\n")
+    }
+
+    private mutating func renderWatchOSFramework(_ target: TuistTarget, packagePath: String) throws -> String {
+        let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = ApplePlatform.watchOS
+        let libraryBlock = try frameworkLibraryBlockIfNeeded(target, packagePath: packagePath, deps: deps)
+        let productDeps = hasSwiftLibrary(for: target) ? "    deps = [\":\(libraryName(for: target))\"],\n" : ""
+        return [
+            try renderResourceGroupIfNeeded(target, packagePath: packagePath),
+            libraryBlock,
+            """
+            watchos_framework(
+                name = "\(target.name)",
+            \(bundleNameAttribute(target, indent: 4))    bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+            \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
+            \(productDeps)\(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))
+            \(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
+            """
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
+            .replacingOccurrences(of: ")\n \n", with: ")\n")
+    }
+
+    private mutating func frameworkLibraryBlockIfNeeded(
+        _ target: TuistTarget,
+        packagePath: String,
+        deps: ResolvedDependencies
+    ) throws -> String? {
+        guard hasSwiftLibrary(for: target) else {
+            return nil
+        }
+        return try renderSwiftLibrary(target, packagePath: packagePath, name: libraryName(for: target), testonly: false, manual: true, resolved: deps)
     }
 
     private func extensionSafeAttribute(_ target: TuistTarget, indent: Int) -> String {
@@ -1119,6 +1239,27 @@ struct BazelGenerator {
             return ""
         }
         return "\(String(repeating: " ", count: indent))extension_safe = True,\n"
+    }
+
+    private func bundleNameAttribute(_ target: TuistTarget, indent: Int) -> String {
+        guard target.productName != target.name else {
+            return ""
+        }
+        return "\(String(repeating: " ", count: indent))bundle_name = \"\(target.productName)\",\n"
+    }
+
+    private func familiesAttribute(for platform: ApplePlatform, indent: Int) -> String {
+        let prefix = String(repeating: " ", count: indent)
+        switch platform {
+        case .ios:
+            return "\(prefix)families = [\"iphone\", \"ipad\"],\n"
+        case .tvOS:
+            return "\(prefix)families = [\"tv\"],\n"
+        case .watchOS:
+            return "\(prefix)families = [\"watch\"],\n"
+        case .macOS:
+            return ""
+        }
     }
 
     private mutating func renderStaticFramework(_ target: TuistTarget, packagePath: String) throws -> String {
@@ -1159,8 +1300,20 @@ struct BazelGenerator {
 
     private mutating func renderUnitTest(_ target: TuistTarget, packagePath: String) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = platform(for: target)
+        let ruleName: String
+        switch platform {
+        case .ios:
+            ruleName = "ios_unit_test"
+        case .macOS:
+            ruleName = "macos_unit_test"
+        case .tvOS:
+            ruleName = "tvos_unit_test"
+        case .watchOS:
+            ruleName = "watchos_unit_test"
+        }
         var lines = [
-            "ios_unit_test(",
+            "\(ruleName)(",
             "    name = \"\(target.name)\",",
             "    bundle_id = \"\(target.bundleId ?? defaultBundleId(for: target))\",",
         ]
@@ -1168,7 +1321,7 @@ struct BazelGenerator {
            let relative = try? paths.pathRelativeToPackage(infoPlistPath, packagePath: packagePath) {
             lines.append("    infoplists = [\(Starlark.quote(relative))],")
         }
-        lines.append("    minimum_os_version = \"17.0\",")
+        lines.append("    minimum_os_version = \"\(minimumOSVersion(for: platform))\",")
         lines.append("    deps = [\":\(libraryName(for: target))\"],")
         if let testHost = deps.testHost {
             lines.append("    test_host = \"\(testHost.localDescription(in: packagePath))\",")
@@ -1593,13 +1746,48 @@ struct BazelGenerator {
             "CFBundleName": target.productName,
             "CFBundlePackageType": packageType(for: target.product),
             "CFBundleShortVersionString": "1.0",
-            "CFBundleVersion": "1",
+            "CFBundleVersion": "1.0",
         ]
         let substitutions = substitutionMap(for: target)
         for (key, value) in target.infoPlistEntries {
             dictionary[key] = propertyListObject(for: value, substitutions: substitutions)
         }
+        if let host = extensionHostApp(for: target) {
+            let hostVersions = versionInfoPlistValues(for: host)
+            if target.infoPlistEntries["CFBundleVersion"] == nil {
+                dictionary["CFBundleVersion"] = hostVersions.bundleVersion
+            }
+            if target.infoPlistEntries["CFBundleShortVersionString"] == nil {
+                dictionary["CFBundleShortVersionString"] = hostVersions.shortVersion
+            }
+        }
         return dictionary
+    }
+
+    private func versionInfoPlistValues(for target: TuistTarget) -> (bundleVersion: Any, shortVersion: Any) {
+        let substitutions = substitutionMap(for: target)
+        let bundleVersion = target.infoPlistEntries["CFBundleVersion"].map {
+            propertyListObject(for: $0, substitutions: substitutions)
+        } ?? "1.0"
+        let shortVersion = target.infoPlistEntries["CFBundleShortVersionString"].map {
+            propertyListObject(for: $0, substitutions: substitutions)
+        } ?? "1.0"
+        return (bundleVersion, shortVersion)
+    }
+
+    private func extensionHostApp(for target: TuistTarget) -> TuistTarget? {
+        guard isExtensionProduct(target.product) else {
+            return nil
+        }
+        let identity = targetIdentity(target)
+        return graph.projects.flatMap(\.targets)
+            .filter { $0.product == .app }
+            .sorted { $0.name < $1.name }
+            .first { app in
+                app.dependencies.contains { dependency in
+                    resolveTargetDependency(dependency).map(targetIdentity) == identity
+                }
+            }
     }
 
     private func packageType(for product: ProductType) -> String {
@@ -1634,7 +1822,7 @@ struct BazelGenerator {
 
     private func substitutionMap(for target: TuistTarget) -> [String: String] {
         [
-            "$(CURRENT_PROJECT_VERSION)": "1",
+            "$(CURRENT_PROJECT_VERSION)": "1.0",
             "$(MARKETING_VERSION)": "1.0",
             "$(DEVELOPMENT_LANGUAGE)": "en",
             "$(EXECUTABLE_NAME)": target.productName,
@@ -1665,6 +1853,11 @@ struct BazelGenerator {
         return "\(String(repeating: " ", count: indent))\(name) = \(Starlark.list(values, indent: indent)),\n"
     }
 
+    private func optionalLabelAttribute(_ name: String, _ label: BazelLabel?, packagePath: String, indent: Int) -> String {
+        guard let label else { return "" }
+        return "\(String(repeating: " ", count: indent))\(name) = \"\(label.localDescription(in: packagePath))\",\n"
+    }
+
     private func defaultBundleId(for target: TuistTarget) -> String {
         "dev.tuist.\(sanitizedModuleName(target.name))"
     }
@@ -1675,6 +1868,7 @@ struct BazelGenerator {
         var frameworkDeps: [BazelLabel] = []
         var extensionDeps: [BazelLabel] = []
         var resourceDeps: [BazelLabel] = []
+        var watchApplication: BazelLabel?
         var sdkFrameworks: [String] = []
         var weakSdkFrameworks: [String] = []
         var sdkDylibs: [String] = []
@@ -1690,6 +1884,7 @@ struct BazelGenerator {
 
     private mutating func resolvedDependencies(for target: TuistTarget, packagePath: String) throws -> ResolvedDependencies {
         var result = ResolvedDependencies()
+        let targetPlatform = platform(for: target)
 
         for dependency in target.dependencies {
             if let dependencyTarget = resolveTargetDependency(dependency) {
@@ -1712,6 +1907,8 @@ struct BazelGenerator {
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
                     }
+                case .app where target.product == .app && targetPlatform == .ios && platform(for: dependencyTarget) == .watchOS:
+                    result.watchApplication = try productLabel(for: dependencyTarget)
                 default:
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
@@ -1900,10 +2097,14 @@ struct BazelGenerator {
         case ios
         case macOS
         case tvOS
+        case watchOS
     }
 
     private func platform(for target: TuistTarget) -> ApplePlatform {
         let destinations = Set(target.destinations)
+        if destinations.contains("appleWatch") {
+            return .watchOS
+        }
         if destinations.contains("appleTv") {
             return .tvOS
         }
@@ -1912,6 +2113,17 @@ struct BazelGenerator {
             return .macOS
         }
         return .ios
+    }
+
+    private func minimumOSVersion(for platform: ApplePlatform) -> String {
+        switch platform {
+        case .ios, .tvOS:
+            "17.0"
+        case .macOS:
+            "14.0"
+        case .watchOS:
+            "9.0"
+        }
     }
 
     private func embeddedExtensionLabel(for extensionTarget: TuistTarget, app: TuistTarget) throws -> BazelLabel {

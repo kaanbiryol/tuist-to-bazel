@@ -152,6 +152,55 @@ final class TuistGraphParserTests: XCTestCase {
         XCTAssertEqual(kind, .plugin)
     }
 
+    func testParsesSettingsBackedInfoPlistEntries() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {
+                "WatchApp": {
+                  "product": "app",
+                  "settings": {
+                    "base": {
+                      "CURRENT_PROJECT_VERSION": { "string": { "_0": "1.0" } },
+                      "MARKETING_VERSION": { "string": { "_0": "2.0" } },
+                      "INFOPLIST_KEY_WKCompanionAppBundleIdentifier": { "string": { "_0": "dev.tuist.App" } },
+                      "INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp": { "string": { "_0": "NO" } },
+                      "INFOPLIST_KEY_UISupportedInterfaceOrientations": {
+                        "array": {
+                          "_0": [
+                            "UIInterfaceOrientationPortrait",
+                            "UIInterfaceOrientationPortraitUpsideDown"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let graph = try TuistGraphParser().parse(data: Data(json.utf8))
+        let entries = try XCTUnwrap(graph.projects.first?.targets.first?.infoPlistEntries)
+
+        XCTAssertEqual(entries["CFBundleVersion"], .string("1.0"))
+        XCTAssertEqual(entries["CFBundleShortVersionString"], .string("2.0"))
+        XCTAssertEqual(entries["WKCompanionAppBundleIdentifier"], .string("dev.tuist.App"))
+        XCTAssertEqual(entries["WKRunsIndependentlyOfCompanionApp"], .bool(false))
+        XCTAssertEqual(
+            entries["UISupportedInterfaceOrientations"],
+            .array([
+                .string("UIInterfaceOrientationPortrait"),
+                .string("UIInterfaceOrientationPortraitUpsideDown"),
+            ])
+        )
+    }
+
     func testParsesMacroProducts() throws {
         let json = """
         {
