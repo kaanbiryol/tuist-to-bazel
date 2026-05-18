@@ -230,6 +230,36 @@ final class TuistGraphParserTests: XCTestCase {
         XCTAssertEqual(target.sources, ["/tmp/App/Sources/Macros/Macros.swift"])
     }
 
+    func testParsesAppClipProduct() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {
+                "AppClip": {
+                  "product": "appClip",
+                  "bundleId": "dev.tuist.App.Clip",
+                  "productName": "AppClip",
+                  "sources": [
+                    {
+                      "path": "/tmp/App/AppClip/Sources/AppClip.swift"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let target = try TuistGraphParser().parse(data: Data(json.utf8)).projects[0].targets[0]
+
+        XCTAssertEqual(target.product, .appClip)
+        XCTAssertEqual(target.bundleId, "dev.tuist.App.Clip")
+    }
+
     func testParsesExtensionProductsAndDefaultInfoPlistEntries() throws {
         let json = """
         {

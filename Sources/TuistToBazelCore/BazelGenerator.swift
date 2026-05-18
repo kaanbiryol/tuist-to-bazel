@@ -90,7 +90,7 @@ struct BazelGenerator {
             }
         }
 
-        for app in graph.projects.flatMap(\.targets) where app.product == .app {
+        for app in graph.projects.flatMap(\.targets) where app.product == .app || app.product == .appClip {
             for dependency in app.dependencies {
                 guard let extensionTarget = resolveTargetDependency(dependency),
                       isExtensionProduct(extensionTarget.product),
@@ -401,7 +401,7 @@ struct BazelGenerator {
         switch product {
         case .framework, .staticFramework, .dynamicLibrary, .staticLibrary:
             true
-        case .app, .appExtension, .extensionKitExtension, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension, .macro, .bundle, .unitTests, .uiTests, .unsupported:
+        case .app, .appClip, .appExtension, .extensionKitExtension, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             false
         }
     }
@@ -571,6 +571,8 @@ struct BazelGenerator {
                 case .ios, .macOS:
                     iosRules.insert("ios_application")
                 }
+            case .appClip:
+                iosRules.insert("ios_app_clip")
             case .appExtension:
                 switch platform(for: target) {
                 case .ios:
@@ -835,6 +837,8 @@ struct BazelGenerator {
         switch target.product {
         case .app:
             return try renderApp(target, packagePath: packagePath)
+        case .appClip:
+            return try renderAppClip(target, packagePath: packagePath)
         case .appExtension, .extensionKitExtension:
             let original = try renderExtension(target, packagePath: packagePath)
             return try renderWithAppSpecificExtensionBundles(
@@ -911,7 +915,29 @@ struct BazelGenerator {
                 bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
             \(families)\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
                 deps = [":\(libraryName(for: target))"],
-            \(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelAttribute("watch_application", deps.watchApplication, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("extensions", deps.extensionDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
+            \(optionalLabelListAttribute("app_clips", deps.appClipDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelAttribute("watch_application", deps.watchApplication, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("extensions", deps.extensionDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
+            """
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
+            .replacingOccurrences(of: ")\n \n", with: ")\n")
+    }
+
+    private mutating func renderAppClip(_ target: TuistTarget, packagePath: String) throws -> String {
+        let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = platform(for: target)
+        if platform != .ios {
+            warnings.append("app clip target \(target.name) is expected to target iOS; generated as ios_app_clip")
+        }
+        return [
+            try renderResourceGroupIfNeeded(target, packagePath: packagePath),
+            try renderSwiftLibrary(target, packagePath: packagePath, name: libraryName(for: target), testonly: false, manual: true, resolved: deps),
+            """
+            ios_app_clip(
+                name = "\(target.name)",
+                bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+                families = ["iphone", "ipad"],
+            \(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: .ios))",
+                deps = [":\(libraryName(for: target))"],
+            \(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("extensions", deps.extensionDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
             .replacingOccurrences(of: ")\n \n", with: ")\n")
@@ -1073,7 +1099,7 @@ struct BazelGenerator {
                 bundleId: consumer.bundleId,
                 infoPlistTarget: wrapper
             )
-        case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
+        case .app, .appClip, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             return ""
         }
     }
@@ -1823,7 +1849,7 @@ struct BazelGenerator {
 
     private func libraryName(for target: TuistTarget) -> String {
         switch target.product {
-        case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .tvTopShelfExtension, .unitTests, .uiTests:
+        case .app, .appClip, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .tvTopShelfExtension, .unitTests, .uiTests:
             "\(target.name)Lib"
         case .staticLibrary, .dynamicLibrary, .macro, .bundle, .stickerPackExtension, .unsupported:
             target.name
@@ -1909,7 +1935,7 @@ struct BazelGenerator {
 
     private func supportsGeneratedDefaultInfoPlist(_ product: ProductType) -> Bool {
         switch product {
-        case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension:
+        case .app, .appClip, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension:
             true
         case .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             false
@@ -1959,6 +1985,21 @@ struct BazelGenerator {
         }
         let identity = targetIdentity(target)
         return graph.projects.flatMap(\.targets)
+            .filter { $0.product == .app || $0.product == .appClip }
+            .sorted { $0.name < $1.name }
+            .first { app in
+                app.dependencies.contains { dependency in
+                    resolveTargetDependency(dependency).map(targetIdentity) == identity
+                }
+            }
+    }
+
+    private func appClipHostApp(for appClip: TuistTarget) -> TuistTarget? {
+        guard appClip.product == .appClip else {
+            return nil
+        }
+        let identity = targetIdentity(appClip)
+        return graph.projects.flatMap(\.targets)
             .filter { $0.product == .app }
             .sorted { $0.name < $1.name }
             .first { app in
@@ -1970,7 +2011,7 @@ struct BazelGenerator {
 
     private func packageType(for product: ProductType) -> String {
         switch product {
-        case .app:
+        case .app, .appClip:
             "APPL"
         case .framework:
             "FMWK"
@@ -2043,6 +2084,7 @@ struct BazelGenerator {
     private struct ResolvedDependencies {
         var codeDeps: [BazelLabel] = []
         var pluginDeps: [BazelLabel] = []
+        var appClipDeps: [BazelLabel] = []
         var frameworkDeps: [BazelLabel] = []
         var extensionDeps: [BazelLabel] = []
         var resourceDeps: [BazelLabel] = []
@@ -2069,19 +2111,30 @@ struct BazelGenerator {
                 switch dependencyTarget.product {
                 case .macro:
                     result.pluginDeps.append(try productLabel(for: dependencyTarget))
-                case .framework where target.product == .app || isExtensionProduct(target.product):
+                case .framework where target.product == .app || target.product == .appClip || isExtensionProduct(target.product):
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
                     }
                     result.frameworkDeps.append(try productLabel(for: dependencyTarget))
-                case _ where target.product == .app && isExtensionProduct(dependencyTarget.product):
+                case _ where (target.product == .app || target.product == .appClip) && isExtensionProduct(dependencyTarget.product):
                     result.extensionDeps.append(try embeddedExtensionLabel(for: dependencyTarget, app: target))
+                case .appClip where target.product == .app:
+                    result.appClipDeps.append(try productLabel(for: dependencyTarget))
                 case .bundle:
                     if let resource = try resourceLabel(for: dependencyTarget) {
                         result.resourceDeps.append(resource)
                     }
                 case .app where target.product == .unitTests || target.product == .uiTests:
                     result.testHost = try productLabel(for: dependencyTarget)
+                    if let library = try libraryLabel(for: dependencyTarget) {
+                        result.codeDeps.append(library)
+                    }
+                case .appClip where target.product == .uiTests:
+                    if let hostApp = appClipHostApp(for: dependencyTarget) {
+                        result.testHost = try productLabel(for: hostApp)
+                    } else {
+                        warnings.append("ui test target \(target.name) depends on app clip \(dependencyTarget.name), but no host app embeds it")
+                    }
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
                     }
@@ -2143,6 +2196,7 @@ struct BazelGenerator {
         result.codeDeps.append(contentsOf: try binaryImportDepsReferencedBySources(for: target, packagePath: packagePath))
         result.codeDeps = Array(Set(result.codeDeps)).sorted()
         result.pluginDeps = Array(Set(result.pluginDeps)).sorted()
+        result.appClipDeps = Array(Set(result.appClipDeps)).sorted()
         result.frameworkDeps = Array(Set(result.frameworkDeps)).sorted()
         result.extensionDeps = Array(Set(result.extensionDeps)).sorted()
         result.resourceDeps = Array(Set(result.resourceDeps)).sorted()
@@ -2266,7 +2320,7 @@ struct BazelGenerator {
         switch product {
         case .appExtension, .extensionKitExtension, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension:
             true
-        case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
+        case .app, .appClip, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             false
         }
     }

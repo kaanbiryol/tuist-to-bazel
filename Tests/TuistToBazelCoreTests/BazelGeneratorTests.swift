@@ -101,6 +101,72 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("\":FrameworkLib\"") == true)
     }
 
+    func testGeneratesIOSAppClipAndEmbedsItInHostApp() throws {
+        let root = URL(fileURLWithPath: "/tmp/AppClipFixture")
+        let graph = TuistGraph(
+            name: "AppClipFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: root.appendingPathComponent("App/Info.plist").path,
+                            sources: [root.appendingPathComponent("App/Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "AppClip")]
+                        ),
+                        TuistTarget(
+                            name: "AppClip",
+                            product: .appClip,
+                            bundleId: "dev.tuist.App.Clip",
+                            productName: "AppClip",
+                            projectPath: root.path,
+                            infoPlistPath: root.appendingPathComponent("AppClip/Info.plist").path,
+                            sources: [root.appendingPathComponent("AppClip/Sources/AppClip.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "AppClipUITests",
+                            product: .uiTests,
+                            bundleId: "dev.tuist.AppClipUITests",
+                            productName: "AppClipUITests",
+                            projectPath: root.path,
+                            infoPlistPath: root.appendingPathComponent("AppClipUITests/Info.plist").path,
+                            sources: [root.appendingPathComponent("AppClipUITests/Tests/AppClipUITests.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "AppClip")]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render()
+        let build = try XCTUnwrap(rendered.files["BUILD.bazel"])
+
+        XCTAssertTrue(build.contains("\"ios_app_clip\""))
+        XCTAssertTrue(build.contains("\"ios_application\""))
+        XCTAssertTrue(build.contains("ios_app_clip("))
+        XCTAssertTrue(build.contains("name = \"AppClip\""))
+        XCTAssertTrue(build.contains("bundle_id = \"dev.tuist.App.Clip\""))
+        XCTAssertTrue(build.contains("app_clips = ["))
+        XCTAssertTrue(build.contains("\":AppClip\""))
+        XCTAssertTrue(build.contains("deps = [\":AppClipLib\"]"))
+        XCTAssertTrue(build.contains("ios_ui_test("))
+        XCTAssertTrue(build.contains("test_host = \":App\""))
+        XCTAssertFalse(build.contains("test_host = \":AppClip\""))
+        XCTAssertFalse(build.contains("skipped: unsupported product"))
+        XCTAssertFalse(rendered.warnings.contains { $0.contains("unsupported product") })
+    }
+
     func testGeneratesTVOSAppAndTopShelfExtensionRules() throws {
         let root = URL(fileURLWithPath: "/tmp/TVFixture")
         let graph = TuistGraph(

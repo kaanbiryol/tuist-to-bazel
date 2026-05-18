@@ -82,6 +82,7 @@ struct TuistHeaders {
 
 enum ProductType: String {
     case app
+    case appClip
     case appExtension
     case extensionKitExtension
     case framework
@@ -101,6 +102,8 @@ enum ProductType: String {
         switch rawGraphValue {
         case "app":
             self = .app
+        case "app_clip", "appClip":
+            self = .appClip
         case "app_extension", "appExtension":
             self = .appExtension
         case "extension_kit_extension", "extensionKitExtension":
@@ -134,7 +137,7 @@ enum ProductType: String {
 
     var isSwiftBacked: Bool {
         switch self {
-        case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .tvTopShelfExtension, .staticLibrary, .dynamicLibrary, .unitTests, .uiTests:
+        case .app, .appClip, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .tvTopShelfExtension, .staticLibrary, .dynamicLibrary, .unitTests, .uiTests:
             true
         case .bundle, .macro, .stickerPackExtension, .unsupported:
             false

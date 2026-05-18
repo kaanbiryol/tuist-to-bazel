@@ -86,6 +86,7 @@ bazelisk build //...
 | Tuist product | Bazel output |
 |---|---|
 | `app` | `swift_library` + `ios_application` |
+| `appClip` / `app_clip` | `swift_library` + `ios_app_clip` |
 | `appExtension` / `app_extension` | `swift_library` + `ios_extension` |
 | `framework` | `swift_library` + `ios_framework` |
 | `staticFramework` / `static_framework` | `swift_library` + `ios_static_framework` |
