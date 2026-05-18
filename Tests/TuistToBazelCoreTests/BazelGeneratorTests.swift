@@ -192,4 +192,85 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(aBuild.contains("//:_CImport"))
         XCTAssertTrue(aBuild.contains("tags = [\"manual\"]"))
     }
+
+    func testGeneratesXCFrameworkImports() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-xcframework-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let dynamicXCFramework = root.appendingPathComponent("Vendor/MyFramework.xcframework", isDirectory: true)
+        try writeXCFrameworkInfo(at: dynamicXCFramework, libraryPath: "MyFramework.framework")
+        try fileManager.createDirectory(
+            at: dynamicXCFramework.appendingPathComponent("ios-arm64_x86_64-simulator/MyFramework.framework", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let staticXCFramework = root.appendingPathComponent("Vendor/MyStaticLibrary.xcframework", isDirectory: true)
+        try writeXCFrameworkInfo(at: staticXCFramework, libraryPath: "libMyStaticLibrary.a")
+        let staticModule = staticXCFramework.appendingPathComponent(
+            "ios-arm64_x86_64-simulator/MyStaticLibrary.swiftmodule",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: staticModule, withIntermediateDirectories: true)
+        try Data().write(to: staticModule.appendingPathComponent("arm64-apple-ios-simulator.swiftinterface"))
+
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .xcframework(path: dynamicXCFramework.path),
+                                .xcframework(path: staticXCFramework.path),
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("apple_dynamic_xcframework_import("))
+        XCTAssertTrue(rootBuild.contains("name = \"_MyFrameworkImport\""))
+        XCTAssertTrue(rootBuild.contains("apple_static_xcframework_import("))
+        XCTAssertTrue(rootBuild.contains("name = \"_MyStaticLibraryImport\""))
+        XCTAssertTrue(rootBuild.contains("\"-swift.layering_check\""))
+        XCTAssertTrue(rootBuild.contains("\"apple._import_framework_via_swiftinterface\""))
+        XCTAssertTrue(rootBuild.contains("\":_MyFrameworkImport\""))
+        XCTAssertTrue(rootBuild.contains("\":_MyStaticLibraryImport\""))
+    }
+
+    private func writeXCFrameworkInfo(at url: URL, libraryPath: String) throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let plist: [String: Any] = [
+            "AvailableLibraries": [
+                [
+                    "LibraryIdentifier": "ios-arm64_x86_64-simulator",
+                    "LibraryPath": libraryPath,
+                    "SupportedArchitectures": ["arm64", "x86_64"],
+                    "SupportedPlatform": "ios",
+                    "SupportedPlatformVariant": "simulator",
+                ],
+            ],
+            "CFBundlePackageType": "XFWK",
+            "XCFrameworkFormatVersion": "1.0",
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try data.write(to: url.appendingPathComponent("Info.plist"))
+    }
 }

@@ -84,9 +84,16 @@
       "localPath": "Fixtures/Tuist/generated_ios_app_with_xcframeworks",
       "upstreamTuistPath": "examples/xcode/generated_ios_app_with_xcframeworks",
       "category": "conformance",
-      "featureTags": ["ios", "xcframework", "linker-settings"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["xcframework dependency support is not automated yet"]
+      "featureTags": ["ios", "xcframework", "dynamic-xcframework", "static-xcframework", "linker-settings"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4",
+        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
+      ]
     },
     {
       "name": "generated_ios_app_with_sdk",

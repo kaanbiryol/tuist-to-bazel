@@ -177,7 +177,7 @@ struct BazelGenerator {
         var iosRules: Set<String> = []
         var swiftRules: Set<String> = []
         var needsResources = false
-        var needsAppleImportRules = false
+        var appleImportRules: Set<String> = []
 
         for target in targets {
             if target.product.isSwiftBacked {
@@ -208,14 +208,18 @@ struct BazelGenerator {
                 switch dependency {
                 case let .framework(path):
                     if binaryImportPackage(for: path, consumingPackage: pair.packagePath) == packagePath {
-                        needsAppleImportRules = true
+                        appleImportRules.insert("apple_static_framework_import")
+                    }
+                case let .xcframework(path):
+                    if binaryImportPackage(for: path, consumingPackage: pair.packagePath) == packagePath {
+                        appleImportRules.insert(try xcframeworkImport(for: path).ruleName)
                     }
                 case let .library(_, _, swiftModuleMap):
                     if swiftModuleMap != nil,
                        binaryImportPackage(for: dependency, consumingPackage: pair.packagePath) == packagePath {
                         swiftRules.insert("swift_import")
                     }
-                case .target, .project, .xcframework, .package, .sdk, .xctest:
+                case .target, .project, .package, .sdk, .xctest:
                     break
                 }
             }
@@ -226,8 +230,9 @@ struct BazelGenerator {
             let ruleNames = swiftRules.sorted().map(Starlark.quote).joined(separator: ", ")
             loads.append("load(\"@build_bazel_rules_swift//swift:swift.bzl\", \(ruleNames))")
         }
-        if needsAppleImportRules {
-            loads.append("load(\"@build_bazel_rules_apple//apple:apple.bzl\", \"apple_static_framework_import\")")
+        if !appleImportRules.isEmpty {
+            let ruleNames = appleImportRules.sorted().map(Starlark.quote).joined(separator: ", ")
+            loads.append("load(\"@build_bazel_rules_apple//apple:apple.bzl\", \(ruleNames))")
         }
         if !iosRules.isEmpty {
             let ruleNames = iosRules.sorted().map(Starlark.quote).joined(separator: ", ")
@@ -263,6 +268,18 @@ struct BazelGenerator {
             },
             by: \.name
         ).values.compactMap(\.first)
+        let xcframeworkImports = Dictionary(
+            grouping: try dependencyPairs.flatMap { pair in
+                try pair.dependencies.compactMap { dependency -> XCFrameworkImport? in
+                    if case let .xcframework(path) = dependency,
+                       binaryImportPackage(for: path, consumingPackage: pair.packagePath) == packagePath {
+                        return try xcframeworkImport(for: path)
+                    }
+                    return nil
+                }
+            },
+            by: \.name
+        ).values.compactMap(\.first)
 
         let frameworkImports = try frameworkPaths.sorted().map { path in
             let relative = try paths.pathRelativeToPackage(path, packagePath: packagePath)
@@ -271,6 +288,17 @@ struct BazelGenerator {
                 name = "\(binaryImportName(for: path))",
                 framework_imports = glob([\(Starlark.quote(relative + "/**"))]),
                 tags = ["manual"],
+            )
+            """
+        }
+        let xcframeworkRules = try xcframeworkImports.sorted(by: { $0.name < $1.name }).map { xcframeworkImport in
+            let relative = try paths.pathRelativeToPackage(xcframeworkImport.path, packagePath: packagePath)
+            let featuresAttribute = xcframeworkImport.features.isEmpty ? "" : "    features = \(Starlark.list(xcframeworkImport.features, indent: 4)),\n"
+            return """
+            \(xcframeworkImport.ruleName)(
+                name = "\(xcframeworkImport.importName)",
+            \(featuresAttribute)    tags = ["manual"],
+                xcframework_imports = glob([\(Starlark.quote(relative + "/**"))]),
             )
             """
         }
@@ -290,7 +318,7 @@ struct BazelGenerator {
             """
         }
 
-        return frameworkImports + swiftImports
+        return frameworkImports + xcframeworkRules + swiftImports
     }
 
     private func dependenciesWithConsumingPackages(
@@ -307,9 +335,11 @@ struct BazelGenerator {
         switch dependency {
         case let .framework(path):
             binaryImportPackage(for: path, consumingPackage: consumingPackage)
+        case let .xcframework(path):
+            binaryImportPackage(for: path, consumingPackage: consumingPackage)
         case .library:
             ""
-        case .target, .project, .xcframework, .package, .sdk, .xctest:
+        case .target, .project, .package, .sdk, .xctest:
             nil
         }
     }
@@ -760,7 +790,7 @@ struct BazelGenerator {
                     warnings.append("binary dependency \(path) on target \(target.name) is not generated yet")
                 }
             case let .xcframework(path):
-                warnings.append("binary dependency \(path) on target \(target.name) is not generated yet")
+                result.codeDeps.append(BazelLabel(package: binaryImportPackage(for: path, consumingPackage: packagePath), name: xcframeworkImportName(for: path)))
             case .xctest:
                 break
             case .target, .project:
@@ -788,6 +818,86 @@ struct BazelGenerator {
 
     private func binaryImportName(for path: String) -> String {
         "_\(sanitizedModuleName(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent))Import"
+    }
+
+    private func xcframeworkImportName(for path: String) -> String {
+        "_\(sanitizedModuleName(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent))Import"
+    }
+
+    private func xcframeworkImport(for path: String) throws -> XCFrameworkImport {
+        try XCFrameworkImport(path: path)
+    }
+
+    private struct XCFrameworkImport: Hashable {
+        enum Kind {
+            case dynamic
+            case `static`
+        }
+
+        let path: String
+        let name: String
+        let kind: Kind
+        let hasSwift: Bool
+
+        init(path: String) throws {
+            self.path = path
+            self.name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+            self.kind = try Self.kind(at: URL(fileURLWithPath: path))
+            self.hasSwift = Self.containsSwiftModule(at: URL(fileURLWithPath: path))
+        }
+
+        var importName: String {
+            "_\(sanitizedModuleName(name))Import"
+        }
+
+        var ruleName: String {
+            switch kind {
+            case .dynamic:
+                "apple_dynamic_xcframework_import"
+            case .static:
+                "apple_static_xcframework_import"
+            }
+        }
+
+        var features: [String] {
+            guard hasSwift else {
+                return []
+            }
+            switch kind {
+            case .dynamic:
+                return ["-swift.layering_check"]
+            case .static:
+                return ["-swift.layering_check", "apple._import_framework_via_swiftinterface"]
+            }
+        }
+
+        private static func kind(at url: URL) throws -> Kind {
+            let infoURL = url.appendingPathComponent("Info.plist")
+            let data = try Data(contentsOf: infoURL)
+            let plist = try PropertyListSerialization.propertyList(from: data, format: nil)
+            guard let dictionary = plist as? [String: Any],
+                  let libraries = dictionary["AvailableLibraries"] as? [[String: Any]],
+                  let libraryPath = libraries.compactMap({ $0["LibraryPath"] as? String }).first else {
+                return .dynamic
+            }
+            return libraryPath.hasSuffix(".a") ? .static : .dynamic
+        }
+
+        private static func containsSwiftModule(at url: URL) -> Bool {
+            guard let enumerator = FileManager.default.enumerator(
+                at: url,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else {
+                return false
+            }
+            for case let fileURL as URL in enumerator {
+                if fileURL.pathExtension == "swiftmodule" || fileURL.pathExtension == "swiftinterface" {
+                    return true
+                }
+            }
+            return false
+        }
     }
 
     private struct LibraryImport: Hashable {
