@@ -4,6 +4,7 @@ struct TuistGraph {
     let name: String
     let projects: [TuistProject]
     var localSwiftPackages: [TuistLocalSwiftPackage] = []
+    var remoteSwiftPackages: [TuistRemoteSwiftPackage] = []
 }
 
 struct TuistProject {
@@ -14,6 +15,34 @@ struct TuistProject {
 
 struct TuistLocalSwiftPackage: Hashable {
     let path: String
+}
+
+struct TuistRemoteSwiftPackage: Hashable {
+    let url: String
+    let requirement: SwiftPackageRequirement
+}
+
+enum SwiftPackageRequirement: Hashable {
+    case upToNextMajor(String)
+    case upToNextMinor(String)
+    case exact(String)
+    case branch(String)
+    case revision(String)
+
+    var packageDescriptionExpression: String {
+        switch self {
+        case let .upToNextMajor(version):
+            ".upToNextMajor(from: \(Starlark.quote(version)))"
+        case let .upToNextMinor(version):
+            ".upToNextMinor(from: \(Starlark.quote(version)))"
+        case let .exact(version):
+            ".exact(\(Starlark.quote(version)))"
+        case let .branch(branch):
+            ".branch(\(Starlark.quote(branch)))"
+        case let .revision(revision):
+            ".revision(\(Starlark.quote(revision)))"
+        }
+    }
 }
 
 struct TuistTarget {

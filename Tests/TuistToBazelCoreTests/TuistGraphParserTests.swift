@@ -81,6 +81,42 @@ final class TuistGraphParserTests: XCTestCase {
         XCTAssertEqual(graph.localSwiftPackages, [TuistLocalSwiftPackage(path: "/tmp/App/Packages/PackageA")])
     }
 
+    func testParsesRemoteSwiftPackages() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "packages": [
+            "/tmp/App",
+            {
+              "https://github.com/ReactiveX/RxSwift": {
+                "remote": {
+                  "url": "https://github.com/ReactiveX/RxSwift",
+                  "requirement": {
+                    "upToNextMajor": {
+                      "_0": "5.0.0"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {}
+            }
+          }
+        }
+        """
+
+        let graph = try TuistGraphParser().parse(data: Data(json.utf8))
+
+        XCTAssertEqual(
+            graph.remoteSwiftPackages,
+            [TuistRemoteSwiftPackage(url: "https://github.com/ReactiveX/RxSwift", requirement: .upToNextMajor("5.0.0"))]
+        )
+    }
+
     func testParsesExtensionProductsAndDefaultInfoPlistEntries() throws {
         let json = """
         {

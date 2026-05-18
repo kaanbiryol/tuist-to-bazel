@@ -15,6 +15,8 @@ struct BazelGenerator {
     private var appSpecificExtensionConsumers: [String: [AppSpecificExtensionConsumer]] = [:]
     private var localSwiftPackageManifests: [String: SwiftPackageManifest] = [:]
     private var localSwiftPackageProductLabels: [String: BazelLabel] = [:]
+    private var remoteSwiftPackageRepositories: [String] = []
+    private var remoteSwiftPackageProductLabels: [String: BazelLabel] = [:]
 
     init(graph: TuistGraph, paths: PathContext) {
         self.graph = graph
@@ -24,6 +26,8 @@ struct BazelGenerator {
     mutating func render() throws -> (files: [String: String], warnings: [String]) {
         indexTargets()
         try indexLocalSwiftPackages()
+        try indexRemoteSwiftPackages()
+        try renderRemoteSwiftPackageSupportFiles()
         var files: [String: String] = [:]
         files["MODULE.bazel"] = renderModule()
         files["BUILD.bazel"] = try renderRootBuild()
@@ -135,12 +139,54 @@ struct BazelGenerator {
         }
     }
 
+    private mutating func indexRemoteSwiftPackages() throws {
+        remoteSwiftPackageRepositories = orderedUnique(
+            graph.remoteSwiftPackages.map { remoteSwiftPackageRepositoryName(for: $0.url) }
+        ).sorted()
+
+        let packageDependencyProducts = graph.projects
+            .flatMap(\.targets)
+            .flatMap(\.dependencies)
+            .compactMap { dependency -> String? in
+                guard case let .package(product) = dependency else {
+                    return nil
+                }
+                return product
+            }
+
+        guard graph.remoteSwiftPackages.count == 1,
+              let repository = remoteSwiftPackageRepositories.first else {
+            if graph.remoteSwiftPackages.count > 1 {
+                warnings.append("remote Swift package products are not generated because product-to-package mapping is ambiguous")
+            }
+            return
+        }
+
+        for product in packageDependencyProducts where localSwiftPackageProductLabels[product] == nil {
+            remoteSwiftPackageProductLabels[product] = BazelLabel(package: "@\(repository)", name: product)
+        }
+    }
+
+    private mutating func renderRemoteSwiftPackageSupportFiles() throws {
+        guard !graph.remoteSwiftPackages.isEmpty else {
+            return
+        }
+
+        generatedFiles[".bazel/SwiftPackages/Package.swift"] = renderRemoteSwiftPackageManifest()
+        guard let resolvedURL = swiftPackageResolvedURL() else {
+            warnings.append("remote Swift packages require Package.resolved, but none was found")
+            return
+        }
+        let resolved = try String(contentsOf: resolvedURL, encoding: .utf8)
+        generatedFiles[".bazel/SwiftPackages/Package.resolved"] = try normalizedPackageResolved(resolved)
+    }
+
     private func pathForBuildFile(_ packagePath: String) -> String {
         packagePath.isEmpty ? "BUILD.bazel" : "\(packagePath)/BUILD.bazel"
     }
 
     private func renderModule() -> String {
-        """
+        let base = """
         bazel_dep(
             name = "rules_xcodeproj",
             version = "4.0.0",
@@ -168,6 +214,109 @@ struct BazelGenerator {
         bazel_dep(name = "gazelle", version = "0.48.0")
         bazel_dep(name = "rules_swift_package_manager", version = "1.13.0")
         """
+        guard !remoteSwiftPackageRepositories.isEmpty else {
+            return base
+        }
+
+        let repositories = remoteSwiftPackageRepositories
+            .map { "    \(Starlark.quote($0))," }
+            .joined(separator: "\n")
+        return """
+        \(base)
+
+        swift_deps = use_extension(
+            "@rules_swift_package_manager//:extensions.bzl",
+            "swift_deps",
+        )
+        swift_deps.from_package(
+            declare_swift_package = False,
+            resolved = "//:.bazel/SwiftPackages/Package.resolved",
+            swift = "//:.bazel/SwiftPackages/Package.swift",
+        )
+        use_repo(
+            swift_deps,
+        \(repositories)
+        )
+        """
+    }
+
+    private func renderRemoteSwiftPackageManifest() -> String {
+        let dependencies = graph.remoteSwiftPackages
+            .sorted { $0.url < $1.url }
+            .map { remotePackage in
+                "        .package(url: \(Starlark.quote(remotePackage.url)), \(remotePackage.requirement.packageDescriptionExpression)),"
+            }
+            .joined(separator: "\n")
+
+        return """
+        // swift-tools-version: 5.9
+        import PackageDescription
+
+        let package = Package(
+            name: "TuistToBazelDependencies",
+            dependencies: [
+        \(dependencies)
+            ]
+        )
+        """
+    }
+
+    private func swiftPackageResolvedURL() -> URL? {
+        [
+            paths.root.appendingPathComponent("Package.resolved"),
+            paths.root.appendingPathComponent(".package.resolved"),
+            paths.root.appendingPathComponent("Tuist/Package.resolved"),
+        ].first { fileManager.fileExists(atPath: $0.path) }
+    }
+
+    private func normalizedPackageResolved(_ content: String) throws -> String {
+        let data = Data(content.utf8)
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (root["version"] as? NSNumber)?.intValue == 1,
+              let object = root["object"] as? [String: Any],
+              let pins = object["pins"] as? [[String: Any]] else {
+            return content
+        }
+
+        let normalizedPins = pins.compactMap { pin -> [String: Any]? in
+            guard let package = pin["package"] as? String,
+                  let location = pin["repositoryURL"] as? String,
+                  let state = pin["state"] as? [String: Any] else {
+                return nil
+            }
+            var normalizedState: [String: Any] = [:]
+            for key in ["branch", "revision", "version"] {
+                guard let value = state[key], !(value is NSNull) else {
+                    continue
+                }
+                normalizedState[key] = value
+            }
+            return [
+                "identity": packageIdentityName(for: package),
+                "kind": "remoteSourceControl",
+                "location": location,
+                "state": normalizedState,
+            ]
+        }
+
+        let normalized: [String: Any] = [
+            "pins": normalizedPins,
+            "version": 2,
+        ]
+        let normalizedData = try JSONSerialization.data(withJSONObject: normalized, options: [.prettyPrinted, .sortedKeys])
+        return String(data: normalizedData, encoding: .utf8) ?? content
+    }
+
+    private func remoteSwiftPackageRepositoryName(for url: String) -> String {
+        let trimmed = url.hasSuffix(".git") ? String(url.dropLast(4)) : url
+        let lastComponent = URL(string: trimmed)?.lastPathComponent
+            ?? trimmed.split(separator: "/").last.map(String.init)
+            ?? trimmed
+        return "swiftpkg_\(packageIdentityName(for: lastComponent))"
+    }
+
+    private func packageIdentityName(for value: String) -> String {
+        sanitizedModuleName(value.lowercased())
     }
 
     private mutating func renderRootBuild() throws -> String {
@@ -1383,6 +1532,8 @@ struct BazelGenerator {
             switch dependency {
             case let .package(product):
                 if let label = localSwiftPackageProductLabels[product] {
+                    result.codeDeps.append(label)
+                } else if let label = remoteSwiftPackageProductLabels[product] {
                     result.codeDeps.append(label)
                 } else {
                     warnings.append("package dependency \(product) on target \(target.name) is not generated yet")

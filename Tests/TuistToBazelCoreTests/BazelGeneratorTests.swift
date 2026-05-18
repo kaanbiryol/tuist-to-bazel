@@ -236,6 +236,77 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(packageBuild.contains("Sources/LibraryB/LibraryB.swift"))
     }
 
+    func testGeneratesRemoteSwiftPackageDependencies() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-remote-spm-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        {
+          "object": {
+            "pins": [
+              {
+                "package": "RxSwift",
+                "repositoryURL": "https://github.com/ReactiveX/RxSwift",
+                "state": {
+                  "branch": null,
+                  "revision": "b3e888b4972d9bc76495dd74d30a8c7fad4b9395",
+                  "version": "5.0.1"
+                }
+              }
+            ]
+          },
+          "version": 1
+        }
+        """.write(to: root.appendingPathComponent("Package.resolved"), atomically: true, encoding: .utf8)
+
+        let graph = TuistGraph(
+            name: "RemoteSPMFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .package(product: "RxSwift"),
+                                .package(product: "RxBlocking"),
+                            ]
+                        ),
+                    ]
+                ),
+            ],
+            remoteSwiftPackages: [
+                TuistRemoteSwiftPackage(url: "https://github.com/ReactiveX/RxSwift", requirement: .upToNextMajor("5.0.0")),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let result = try generator.render()
+        let rendered = result.files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        let module = try XCTUnwrap(rendered["MODULE.bazel"])
+        let packageSwift = try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.swift"])
+        let packageResolved = try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.resolved"])
+        XCTAssertFalse(result.warnings.contains { $0.contains("package dependency") })
+        XCTAssertTrue(rootBuild.contains("@swiftpkg_rxswift//:RxSwift"))
+        XCTAssertTrue(rootBuild.contains("@swiftpkg_rxswift//:RxBlocking"))
+        XCTAssertTrue(module.contains("swift_deps.from_package("))
+        XCTAssertTrue(module.contains("\"swiftpkg_rxswift\""))
+        XCTAssertTrue(packageSwift.contains(".package(url: \"https://github.com/ReactiveX/RxSwift\", .upToNextMajor(from: \"5.0.0\"))"))
+        XCTAssertTrue(packageResolved.contains("\"identity\" : \"rxswift\""))
+    }
+
     func testGeneratesStaticLibraryDependenciesForProjectAndSwiftArchive() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

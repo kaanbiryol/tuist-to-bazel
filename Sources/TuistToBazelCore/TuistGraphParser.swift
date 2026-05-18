@@ -15,7 +15,8 @@ struct TuistGraphParser {
         return TuistGraph(
             name: name,
             projects: try parseProjects(projectsValue),
-            localSwiftPackages: parseLocalSwiftPackages(rootObject["packages"]).map(TuistLocalSwiftPackage.init(path:))
+            localSwiftPackages: parseLocalSwiftPackages(rootObject["packages"]).map(TuistLocalSwiftPackage.init(path:)),
+            remoteSwiftPackages: parseRemoteSwiftPackages(rootObject["packages"])
         )
     }
 
@@ -176,9 +177,9 @@ struct TuistGraphParser {
         return !isBuildableSource(path) && !ignoredExtensions.contains(URL(fileURLWithPath: path).pathExtension) && fileName != ".DS_Store"
     }
 
-    private func orderedUnique(_ values: [String]) -> [String] {
-        var seen: Set<String> = []
-        return values.filter { seen.insert($0).inserted }
+    private func orderedUnique<T: Hashable>(_ values: [T]) -> [T] {
+        var genericSeen: Set<T> = []
+        return values.filter { genericSeen.insert($0).inserted }
     }
 
     private func parseResources(_ value: JSONValue?) -> [TuistResource] {
@@ -231,6 +232,53 @@ struct TuistGraphParser {
                 collectLocalSwiftPackages(child, into: &paths)
             }
         }
+    }
+
+    private func parseRemoteSwiftPackages(_ value: JSONValue?) -> [TuistRemoteSwiftPackage] {
+        var packages: [TuistRemoteSwiftPackage] = []
+        collectRemoteSwiftPackages(value, into: &packages)
+        return orderedUnique(packages)
+    }
+
+    private func collectRemoteSwiftPackages(_ value: JSONValue?, into packages: inout [TuistRemoteSwiftPackage]) {
+        guard let value else { return }
+        if let remote = value["remote"]?.objectValue,
+           let url = remote["url"]?.stringValue,
+           let requirement = parseSwiftPackageRequirement(remote["requirement"]) {
+            packages.append(TuistRemoteSwiftPackage(url: url, requirement: requirement))
+        }
+        if let object = value.objectValue {
+            for child in object.values {
+                collectRemoteSwiftPackages(child, into: &packages)
+            }
+        }
+        if let array = value.arrayValue {
+            for child in array {
+                collectRemoteSwiftPackages(child, into: &packages)
+            }
+        }
+    }
+
+    private func parseSwiftPackageRequirement(_ value: JSONValue?) -> SwiftPackageRequirement? {
+        guard let object = value?.objectValue else {
+            return nil
+        }
+        if let version = object["upToNextMajor"]?["_0"]?.stringValue {
+            return .upToNextMajor(version)
+        }
+        if let version = object["upToNextMinor"]?["_0"]?.stringValue {
+            return .upToNextMinor(version)
+        }
+        if let version = object["exact"]?["_0"]?.stringValue {
+            return .exact(version)
+        }
+        if let branch = object["branch"]?["_0"]?.stringValue {
+            return .branch(branch)
+        }
+        if let revision = object["revision"]?["_0"]?.stringValue {
+            return .revision(revision)
+        }
+        return nil
     }
 
     private func parseTags(_ value: JSONValue?) -> [String] {

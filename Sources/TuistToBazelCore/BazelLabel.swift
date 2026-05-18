@@ -9,7 +9,10 @@ struct BazelLabel: Hashable, Comparable {
     }
 
     var description: String {
-        package.isEmpty ? "//:\(name)" : "//\(package):\(name)"
+        if package.hasPrefix("@") {
+            return "\(package)//:\(name)"
+        }
+        return package.isEmpty ? "//:\(name)" : "//\(package):\(name)"
     }
 
     func localDescription(in packagePath: String) -> String {
