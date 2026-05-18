@@ -260,6 +260,47 @@ final class TuistGraphParserTests: XCTestCase {
         XCTAssertEqual(target.bundleId, "dev.tuist.App.Clip")
     }
 
+    func testParsesCoreDataModels() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {
+                "App": {
+                  "product": "app",
+                  "coreDataModels": [
+                    {
+                      "currentVersion": "2",
+                      "path": "/tmp/App/CoreData/Users.xcdatamodeld",
+                      "versions": [
+                        "/tmp/App/CoreData/Users.xcdatamodeld/1.xcdatamodel",
+                        "/tmp/App/CoreData/Users.xcdatamodeld/2.xcdatamodel"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let target = try TuistGraphParser().parse(data: Data(json.utf8)).projects[0].targets[0]
+
+        XCTAssertEqual(target.coreDataModels, [
+            TuistCoreDataModel(
+                path: "/tmp/App/CoreData/Users.xcdatamodeld",
+                currentVersion: "2",
+                versions: [
+                    "/tmp/App/CoreData/Users.xcdatamodeld/1.xcdatamodel",
+                    "/tmp/App/CoreData/Users.xcdatamodeld/2.xcdatamodel",
+                ]
+            ),
+        ])
+    }
+
     func testParsesExtensionProductsAndDefaultInfoPlistEntries() throws {
         let json = """
         {

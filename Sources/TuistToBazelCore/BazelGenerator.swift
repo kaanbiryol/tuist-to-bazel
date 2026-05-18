@@ -558,7 +558,7 @@ struct BazelGenerator {
                     swiftRules.insert("swift_library")
                 }
             }
-            needsResources = needsResources || !target.resources.isEmpty || target.product == .bundle
+            needsResources = needsResources || !target.resources.isEmpty || !target.coreDataModels.isEmpty || target.product == .bundle
             switch target.product {
             case .app:
                 switch platform(for: target) {
@@ -719,7 +719,12 @@ struct BazelGenerator {
             loads.append("load(\"@build_bazel_rules_apple//apple:visionos.bzl\", \(ruleNames))")
         }
         if needsResources {
-            loads.append("load(\"@build_bazel_rules_apple//apple:resources.bzl\", \"apple_bundle_import\", \"apple_resource_bundle\", \"apple_resource_group\")")
+            var resourceRules = ["apple_bundle_import", "apple_resource_bundle", "apple_resource_group"]
+            if targets.contains(where: { !$0.coreDataModels.isEmpty }) {
+                resourceRules.append("apple_core_data_model")
+            }
+            let ruleNames = resourceRules.sorted().map(Starlark.quote).joined(separator: ", ")
+            loads.append("load(\"@build_bazel_rules_apple//apple:resources.bzl\", \(ruleNames))")
         }
         return loads
     }
@@ -834,57 +839,62 @@ struct BazelGenerator {
     }
 
     private mutating func renderTarget(_ target: TuistTarget, packagePath: String) throws -> String {
+        let rendered: String
         switch target.product {
         case .app:
-            return try renderApp(target, packagePath: packagePath)
+            rendered = try renderApp(target, packagePath: packagePath)
         case .appClip:
-            return try renderAppClip(target, packagePath: packagePath)
+            rendered = try renderAppClip(target, packagePath: packagePath)
         case .appExtension, .extensionKitExtension:
             let original = try renderExtension(target, packagePath: packagePath)
-            return try renderWithAppSpecificExtensionBundles(
+            rendered = try renderWithAppSpecificExtensionBundles(
                 target,
                 packagePath: packagePath,
                 original: original
             )
         case .framework:
-            return try renderFramework(target, packagePath: packagePath)
+            rendered = try renderFramework(target, packagePath: packagePath)
         case .messagesExtension:
             let original = try renderMessagesExtension(target, packagePath: packagePath)
-            return try renderWithAppSpecificExtensionBundles(
+            rendered = try renderWithAppSpecificExtensionBundles(
                 target,
                 packagePath: packagePath,
                 original: original
             )
         case .staticFramework:
-            return try renderStaticFramework(target, packagePath: packagePath)
+            rendered = try renderStaticFramework(target, packagePath: packagePath)
         case .stickerPackExtension:
             let original = try renderStickerPackExtension(target, packagePath: packagePath)
-            return try renderWithAppSpecificExtensionBundles(
+            rendered = try renderWithAppSpecificExtensionBundles(
                 target,
                 packagePath: packagePath,
                 original: original
             )
         case .tvTopShelfExtension:
             let original = try renderTVTopShelfExtension(target, packagePath: packagePath)
-            return try renderWithAppSpecificExtensionBundles(
+            rendered = try renderWithAppSpecificExtensionBundles(
                 target,
                 packagePath: packagePath,
                 original: original
             )
         case .staticLibrary, .dynamicLibrary:
-            return try renderLibrary(target, packagePath: packagePath)
+            rendered = try renderLibrary(target, packagePath: packagePath)
         case .macro:
-            return try renderCompilerPlugin(target, packagePath: packagePath)
+            rendered = try renderCompilerPlugin(target, packagePath: packagePath)
         case .bundle:
-            return try renderResourceBundle(target, packagePath: packagePath)
+            rendered = try renderResourceBundle(target, packagePath: packagePath)
         case .unitTests:
-            return try renderUnitTest(target, packagePath: packagePath)
+            rendered = try renderUnitTest(target, packagePath: packagePath)
         case .uiTests:
-            return try renderUITest(target, packagePath: packagePath)
+            rendered = try renderUITest(target, packagePath: packagePath)
         case .unsupported:
             warnings.append("target \(target.name) has an unsupported product and was skipped")
             return "# \(target.name) skipped: unsupported product"
         }
+        return [
+            try renderCoreDataModelIfNeeded(target, packagePath: packagePath),
+            rendered,
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
     }
 
     private mutating func renderApp(_ target: TuistTarget, packagePath: String) throws -> String {
@@ -1571,6 +1581,25 @@ struct BazelGenerator {
         ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
     }
 
+    private func renderCoreDataModelIfNeeded(_ target: TuistTarget, packagePath: String) throws -> String? {
+        guard !target.coreDataModels.isEmpty else {
+            return nil
+        }
+        let srcExpressions = try target.coreDataModels.flatMap { model in
+            try currentModelContentsPaths(for: model).map { contentsPath in
+                Starlark.quote(try paths.pathRelativeToPackage(contentsPath, packagePath: packagePath))
+            }
+        }
+        return """
+        apple_core_data_model(
+            name = "\(coreDataModelSourceName(for: target))",
+            srcs = \(Starlark.exprList(srcExpressions, indent: 4)),
+            outs = \(try renderCoreDataModelOuts(for: target, packagePath: packagePath)),
+            swift_version = "5",
+        )
+        """
+    }
+
     private mutating func renderSwiftLibrary(
         _ target: TuistTarget,
         packagePath: String,
@@ -1676,7 +1705,7 @@ struct BazelGenerator {
     }
 
     private mutating func renderResourceGroupIfNeeded(_ target: TuistTarget, packagePath: String) throws -> String? {
-        guard !target.resources.isEmpty, target.product != .bundle else { return nil }
+        guard (!target.resources.isEmpty || !target.coreDataModels.isEmpty), target.product != .bundle else { return nil }
         let resources = try resourceExpressions(for: target, packagePath: packagePath)
         return [
             try renderBundleImportsIfNeeded(target, packagePath: packagePath),
@@ -1693,6 +1722,9 @@ struct BazelGenerator {
     private mutating func sourceLabels(for target: TuistTarget, packagePath: String) throws -> [String] {
         var sources = try target.sources.filter { $0.hasSuffix(".swift") }.map {
             try paths.pathRelativeToPackage($0, packagePath: packagePath)
+        }
+        if !target.coreDataModels.isEmpty {
+            sources.append(":\(coreDataModelSourceName(for: target))")
         }
         if let generatedAccessor = try generatedResourceAccessorSource(for: target, packagePath: packagePath) {
             sources.append(generatedAccessor)
@@ -1784,7 +1816,7 @@ struct BazelGenerator {
         var resources: Set<String> = []
         var structured: Set<String> = []
 
-        for resource in target.resources {
+        for resource in target.resources + target.coreDataModels.map({ TuistResource(path: $0.path, kind: .file, tags: []) }) {
             let relative = try paths.pathRelativeToPackage(resource.path, packagePath: packagePath)
             if !resource.tags.isEmpty {
                 let tags = resource.tags.joined(separator: ", ")
@@ -1812,6 +1844,67 @@ struct BazelGenerator {
 
     private func globExpression(_ relativePath: String) -> String {
         "glob([\(Starlark.quote(relativePath + "/**"))])"
+    }
+
+    private func coreDataModelSourceName(for target: TuistTarget) -> String {
+        "_\(sanitizedModuleName(target.name))CoreDataSources"
+    }
+
+    private func renderCoreDataModelOuts(for target: TuistTarget, packagePath: String) throws -> String {
+        let entries = target.coreDataModels.map { model -> (name: String, files: [String]) in
+            let modelName = URL(fileURLWithPath: model.path).deletingPathExtension().lastPathComponent
+            let classFiles = coreDataClassNames(for: model).map { "\($0)+CoreDataProperties.swift" }
+            return (modelName, ["\(modelName)+CoreDataModel.swift"] + classFiles)
+        }
+        guard !entries.isEmpty else {
+            return "{}"
+        }
+
+        let body = entries
+            .sorted { $0.name < $1.name }
+            .map { entry in
+                "        \(Starlark.quote(entry.name)): \(Starlark.orderedList(entry.files, indent: 8)),"
+            }
+            .joined(separator: "\n")
+        return "{\n\(body)\n    }"
+    }
+
+    private func coreDataClassNames(for model: TuistCoreDataModel) -> [String] {
+        var classes: Set<String> = []
+        for contentsPath in currentModelContentsPaths(for: model) {
+            classes.formUnion(coreDataClassNames(inModelContents: contentsPath))
+        }
+        return Array(classes).sorted()
+    }
+
+    private func currentModelContentsPaths(for model: TuistCoreDataModel) -> [String] {
+        let versions = model.versions.isEmpty ? [model.path] : model.versions
+        let selectedVersion = model.currentVersion.flatMap { currentVersion in
+            versions.first { version in
+                let versionName = URL(fileURLWithPath: version).deletingPathExtension().lastPathComponent
+                return versionName == currentVersion || URL(fileURLWithPath: version).lastPathComponent == currentVersion
+            }
+        }
+
+        let modelPaths = selectedVersion.map { [$0] } ?? versions
+        return modelPaths.map { path in
+            URL(fileURLWithPath: path).appendingPathComponent("contents").path
+        }
+    }
+
+    private func coreDataClassNames(inModelContents path: String) -> [String] {
+        guard let document = try? XMLDocument(contentsOf: URL(fileURLWithPath: path), options: []),
+              let entities = try? document.nodes(forXPath: "//entity") else {
+            return []
+        }
+        return entities.compactMap { node -> String? in
+            guard let element = node as? XMLElement,
+                  let name = element.attribute(forName: "name")?.stringValue else {
+                return nil
+            }
+            let className = element.attribute(forName: "representedClassName")?.stringValue ?? name
+            return swiftTypeIdentifier(className, fallback: name)
+        }
     }
 
     private func renderBundleImportsIfNeeded(_ target: TuistTarget, packagePath: String) throws -> String? {
@@ -1844,7 +1937,7 @@ struct BazelGenerator {
     }
 
     private func resourceGroupLabelIfNeeded(_ target: TuistTarget, packagePath: String) -> [BazelLabel] {
-        target.resources.isEmpty || target.product == .bundle ? [] : [BazelLabel(package: packagePath, name: "_\(target.name)Resources")]
+        (target.resources.isEmpty && target.coreDataModels.isEmpty) || target.product == .bundle ? [] : [BazelLabel(package: packagePath, name: "_\(target.name)Resources")]
     }
 
     private func libraryName(for target: TuistTarget) -> String {

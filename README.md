@@ -95,7 +95,7 @@ bazelisk build //...
 | `uiTests` / `ui_tests` | `swift_library` + platform UI test rule |
 | `staticLibrary` / `dynamicLibrary` | `swift_library` |
 
-Resource handling includes `apple_resource_group`, `apple_bundle_import` for checked-in `.bundle` directories, generated `Bundle.module` bridges, and narrow Tuist-style accessors for assets, strings, string dictionaries, plists, and fonts.
+Resource handling includes `apple_resource_group`, `apple_bundle_import` for checked-in `.bundle` directories, `apple_core_data_model` for Core Data generated sources, generated `Bundle.module` bridges, and narrow Tuist-style accessors for assets, strings, string dictionaries, plists, fonts, and Core Data entity classes.
 
 ## Current Limits
 

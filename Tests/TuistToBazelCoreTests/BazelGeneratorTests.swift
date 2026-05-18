@@ -167,6 +167,78 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertFalse(rendered.warnings.contains { $0.contains("unsupported product") })
     }
 
+    func testGeneratesCoreDataModelSourcesAndResources() throws {
+        let root = URL(fileURLWithPath: "/tmp/CoreDataFixture")
+        let model = root.appendingPathComponent("CoreData/Users.xcdatamodeld/1.xcdatamodel", isDirectory: true)
+        let sources = root.appendingPathComponent("Sources", isDirectory: true)
+        try? FileManager.default.removeItem(at: root)
+        try FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        try """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" sourceLanguage="Swift">
+            <entity name="User" representedClassName="User" syncable="YES" codeGenerationType="category">
+                <attribute name="name" optional="YES" attributeType="String"/>
+            </entity>
+        </model>
+        """.write(to: model.appendingPathComponent("contents"), atomically: true, encoding: .utf8)
+        try """
+        import CoreData
+
+        func loadUsers() {
+            _ = User.fetchRequest()
+        }
+        """.write(to: sources.appendingPathComponent("Model.swift"), atomically: true, encoding: .utf8)
+
+        let graph = TuistGraph(
+            name: "CoreDataFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: root.appendingPathComponent("Info.plist").path,
+                            sources: [sources.appendingPathComponent("Model.swift").path],
+                            coreDataModels: [
+                                TuistCoreDataModel(
+                                    path: root.appendingPathComponent("CoreData/Users.xcdatamodeld").path,
+                                    currentVersion: "1",
+                                    versions: [model.path]
+                                ),
+                            ],
+                            resources: [],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render()
+        let build = try XCTUnwrap(rendered.files["BUILD.bazel"])
+        let accessor = try XCTUnwrap(rendered.files[".bazel/Generated/AppResourceAccessors.swift"])
+
+        XCTAssertTrue(build.contains("load(\"@build_bazel_rules_apple//apple:resources.bzl\", \"apple_bundle_import\", \"apple_core_data_model\", \"apple_resource_bundle\", \"apple_resource_group\")"))
+        XCTAssertTrue(build.contains("apple_core_data_model("))
+        XCTAssertTrue(build.contains("name = \"_AppCoreDataSources\""))
+        XCTAssertTrue(build.contains("\"CoreData/Users.xcdatamodeld/1.xcdatamodel/contents\""))
+        XCTAssertTrue(build.contains("\"Users+CoreDataModel.swift\""))
+        XCTAssertTrue(build.contains("\"User+CoreDataProperties.swift\""))
+        XCTAssertTrue(build.contains("srcs = ["))
+        XCTAssertTrue(build.contains("\":_AppCoreDataSources\""))
+        XCTAssertTrue(build.contains("resources = glob([\"CoreData/Users.xcdatamodeld/**\"])"))
+        XCTAssertTrue(accessor.contains("import CoreData"))
+        XCTAssertTrue(accessor.contains("@objc(User)"))
+        XCTAssertTrue(accessor.contains("public final class User: NSManagedObject"))
+    }
+
     func testGeneratesTVOSAppAndTopShelfExtensionRules() throws {
         let root = URL(fileURLWithPath: "/tmp/TVFixture")
         let graph = TuistGraph(

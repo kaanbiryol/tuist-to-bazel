@@ -85,6 +85,7 @@ struct TuistGraphParser {
             infoPlistEntries: settingsInfoPlistEntries.merging(explicitInfoPlistEntries) { _, explicit in explicit },
             sources: orderedUnique(parsePathArray(object["sources"]) + buildableFolderFiles.filter(isBuildableSource)),
             headers: parseHeaders(object["headers"]),
+            coreDataModels: parseCoreDataModels(object["coreDataModels"]),
             resources: parseResources(object["resources"]) + buildableFolderFiles.filter(isBuildableResource).map {
                 TuistResource(path: $0, kind: .file, tags: [])
             },
@@ -231,6 +232,20 @@ struct TuistGraphParser {
                 return TuistResource(path: path, kind: .folderReference, tags: parseTags(folder["tags"]))
             }
             return nil
+        }
+    }
+
+    private func parseCoreDataModels(_ value: JSONValue?) -> [TuistCoreDataModel] {
+        guard let models = value?.arrayValue else { return [] }
+        return models.compactMap { element in
+            guard let path = element["path"]?.stringValue else {
+                return nil
+            }
+            return TuistCoreDataModel(
+                path: path,
+                currentVersion: element["currentVersion"]?.stringValue,
+                versions: parseStringArray(element["versions"])
+            )
         }
     }
 

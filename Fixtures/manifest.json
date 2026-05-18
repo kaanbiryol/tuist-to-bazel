@@ -142,6 +142,21 @@
       ]
     },
     {
+      "name": "generated_ios_app_with_coredata",
+      "localPath": "Fixtures/Tuist/generated_ios_app_with_coredata",
+      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_coredata",
+      "category": "conformance",
+      "featureTags": ["ios", "core-data", "resources", "resource-synthesizers"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
+      ]
+    },
+    {
       "name": "generated_ios_app_with_extensions",
       "localPath": "Fixtures/Tuist/generated_ios_app_with_extensions",
       "upstreamTuistPath": "examples/xcode/generated_ios_app_with_extensions",

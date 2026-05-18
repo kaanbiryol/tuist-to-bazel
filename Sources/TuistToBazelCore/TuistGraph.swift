@@ -56,8 +56,15 @@ struct TuistTarget {
     var infoPlistEntries: [String: PlistValue] = [:]
     let sources: [String]
     var headers: TuistHeaders = .empty
+    var coreDataModels: [TuistCoreDataModel] = []
     let resources: [TuistResource]
     let dependencies: [TuistDependency]
+}
+
+struct TuistCoreDataModel: Hashable {
+    let path: String
+    let currentVersion: String?
+    let versions: [String]
 }
 
 enum PlistValue: Equatable {
