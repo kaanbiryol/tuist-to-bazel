@@ -369,8 +369,10 @@ struct ResourceAccessorGenerator {
     }
 
     private func plistAccessors(in files: [String]) -> [PlistAccessor] {
-        files.filter { URL(fileURLWithPath: $0).pathExtension == "plist" }.compactMap { path in
+        var seenTypeNames: Set<String> = []
+        return files.filter { URL(fileURLWithPath: $0).pathExtension == "plist" }.compactMap { path in
             let url = URL(fileURLWithPath: path)
+            let typeName = swiftTypeIdentifier(url.deletingPathExtension().lastPathComponent, fallback: "Plist")
             let keys = parsePropertyListValues(path: path).map { key, value in
                 PlistKey(
                     rawName: key,
@@ -380,9 +382,12 @@ struct ResourceAccessorGenerator {
                 )
             }
             guard !keys.isEmpty else { return nil }
+            guard seenTypeNames.insert(typeName).inserted else {
+                return nil
+            }
             return PlistAccessor(
                 resourceName: url.deletingPathExtension().lastPathComponent,
-                typeName: swiftTypeIdentifier(url.deletingPathExtension().lastPathComponent, fallback: "Plist"),
+                typeName: typeName,
                 keys: keys
             )
         }

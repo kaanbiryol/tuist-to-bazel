@@ -220,6 +220,10 @@ struct BazelGenerator {
             repo_name = "build_bazel_rules_swift",
         )
         bazel_dep(
+            name = "rules_cc",
+            version = "0.2.17",
+        )
+        bazel_dep(
             name = "rules_ios",
             version = "6.0.1",
             repo_name = "build_bazel_rules_ios",
@@ -520,6 +524,7 @@ struct BazelGenerator {
         var tvOSRules: Set<String> = []
         var swiftRules: Set<String> = []
         var needsMixedLanguage = false
+        var needsObjC = false
         var needsResources = false
         var appleImportRules: Set<String> = []
 
@@ -527,6 +532,8 @@ struct BazelGenerator {
             if target.product.isSwiftBacked {
                 if requiresMixedLanguage(target) {
                     needsMixedLanguage = true
+                } else if requiresObjCLibrary(target) {
+                    needsObjC = true
                 } else {
                     swiftRules.insert("swift_library")
                 }
@@ -600,6 +607,9 @@ struct BazelGenerator {
         }
         if needsMixedLanguage {
             loads.append("load(\"@build_bazel_rules_swift//mixed_language:mixed_language_library.bzl\", \"mixed_language_library\")")
+        }
+        if needsObjC {
+            loads.append("load(\"@rules_cc//cc:objc_library.bzl\", \"objc_library\")")
         }
         if !appleImportRules.isEmpty {
             let ruleNames = appleImportRules.sorted().map(Starlark.quote).joined(separator: ", ")
@@ -1209,7 +1219,7 @@ struct BazelGenerator {
         includeDeveloperSearchPaths: Bool = false
     ) throws -> String {
         let srcs = try sourceLabels(for: target, packagePath: packagePath)
-        let clangSrcs = try clangSourceLabels(for: target, packagePath: packagePath)
+        var clangSrcs = try clangSourceLabels(for: target, packagePath: packagePath)
         let headers = try headerLabels(for: target, packagePath: packagePath)
         let deps = extraDeps
         let data = resourceGroupLabelIfNeeded(target, packagePath: packagePath)
@@ -1221,6 +1231,10 @@ struct BazelGenerator {
         let dataAttribute = data.isEmpty ? "" : "    data = \(Starlark.list(data.map { $0.localDescription(in: packagePath) }, indent: 4)),\n"
         let linkoptsAttribute = linkopts.isEmpty ? "" : "    linkopts = \(Starlark.orderedList(linkopts, indent: 4)),\n"
 
+        if clangSrcs.isEmpty, requiresObjCLibrary(target), target.sources.contains(where: isClangSource) {
+            clangSrcs.append(generatedObjCStubSource(for: target, packagePath: packagePath))
+        }
+
         if !clangSrcs.isEmpty || !headers.isEmpty {
             let umbrella = umbrellaHeader(for: target, headers: headers)
             let hdrs = umbrella.map { umbrella in headers.filter { $0 != umbrella } } ?? headers
@@ -1230,6 +1244,19 @@ struct BazelGenerator {
             let weakSdkFrameworksAttribute = weakSdkFrameworks.isEmpty ? "" : "    weak_sdk_frameworks = \(Starlark.list(weakSdkFrameworks, indent: 4)),\n"
             let sdkDylibsAttribute = sdkDylibs.isEmpty ? "" : "    sdk_dylibs = \(Starlark.list(sdkDylibs, indent: 4)),\n"
             let swiftCoptsAttribute = testableCopts.isEmpty ? "" : "    swift_copts = \(Starlark.list(testableCopts, indent: 4)),\n"
+
+            if srcs.isEmpty {
+                return """
+                objc_library(
+                    name = "\(name)",
+                    srcs = \(Starlark.list(clangSrcs, indent: 4)),
+                    hdrs = \(Starlark.list(hdrs, indent: 4)),
+                \(dataAttribute)    enable_modules = True,
+                \(includesAttribute)\(linkoptsAttribute)    module_name = "\(sanitizedModuleName(target.productName))",
+                \(sdkDylibsAttribute)\(sdkFrameworksAttribute)\(tagsAttribute)\(testonlyAttribute)\(weakSdkFrameworksAttribute)    deps = \(Starlark.list(deps.map { $0.localDescription(in: packagePath) }, indent: 4)),
+                )
+                """
+            }
 
             return """
             mixed_language_library(
@@ -1279,8 +1306,37 @@ struct BazelGenerator {
         return sources
     }
 
+    private mutating func generatedObjCStubSource(for target: TuistTarget, packagePath: String) -> String {
+        let relative = ".bazel/Generated/\(sanitizedModuleName(target.name))ObjCStub.m"
+        let generatedOutputPath = packagePath.isEmpty ? relative : "\(packagePath)/\(relative)"
+        if generatedFiles[generatedOutputPath] == nil {
+            generatedFiles[generatedOutputPath] = "void _\(sanitizedModuleName(target.name))BazelObjCStub(void) {}\n"
+            warnings.append("generated Objective-C stub for \(target.name) at \(generatedOutputPath)")
+        }
+        return relative
+    }
+
     private func requiresMixedLanguage(_ target: TuistTarget) -> Bool {
+        hasRenderableObjCInputs(target) && hasSwiftInputs(target)
+    }
+
+    private func requiresObjCLibrary(_ target: TuistTarget) -> Bool {
+        requiresObjCInterop(target) && !hasSwiftInputs(target)
+    }
+
+    private func requiresObjCInterop(_ target: TuistTarget) -> Bool {
         target.sources.contains(where: isClangSource) || !target.headers.all.isEmpty
+    }
+
+    private func hasRenderableObjCInputs(_ target: TuistTarget) -> Bool {
+        target.sources.contains { isClangSource($0) && !isAutoLinkingStubFile($0) }
+            || target.headers.all.contains { !isAutoLinkingStubFile($0) }
+    }
+
+    private func hasSwiftInputs(_ target: TuistTarget) -> Bool {
+        target.sources.contains { $0.hasSuffix(".swift") }
+            || resourceAccessors.shouldGenerate(for: target)
+            || coreDataModels.shouldGenerate(for: target)
     }
 
     private func isClangSource(_ path: String) -> Bool {
@@ -1289,13 +1345,35 @@ struct BazelGenerator {
     }
 
     private func clangSourceLabels(for target: TuistTarget, packagePath: String) throws -> [String] {
-        try target.sources.filter(isClangSource).map {
+        try target.sources.filter { isClangSource($0) && !isAutoLinkingStubFile($0) }.map {
             try paths.pathRelativeToPackage($0, packagePath: packagePath)
         }
     }
 
+    private func isAutoLinkingStubFile(_ path: String) -> Bool {
+        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return false
+        }
+
+        let withoutBlockComments = replacingMatches(
+            pattern: #"/\*.*?\*/"#,
+            in: content,
+            options: [.dotMatchesLineSeparators],
+            with: ""
+        )
+        let code = withoutBlockComments
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in
+                line.split(separator: "//", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
+            }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return firstMatch(pattern: #"^@import\s+[A-Za-z_][A-Za-z0-9_]*\s*;$"#, in: code) != nil
+    }
+
     private func headerLabels(for target: TuistTarget, packagePath: String) throws -> [String] {
-        try target.headers.all.map {
+        try target.headers.all.filter { !isAutoLinkingStubFile($0) }.map {
             try paths.pathRelativeToPackage($0, packagePath: packagePath)
         }
     }
@@ -1640,6 +1718,7 @@ struct BazelGenerator {
             }
         }
 
+        result.codeDeps.append(contentsOf: try binaryImportDepsReferencedBySources(for: target, packagePath: packagePath))
         result.codeDeps = Array(Set(result.codeDeps)).sorted()
         result.frameworkDeps = Array(Set(result.frameworkDeps)).sorted()
         result.extensionDeps = Array(Set(result.extensionDeps)).sorted()
@@ -1648,6 +1727,85 @@ struct BazelGenerator {
         result.weakSdkFrameworks = Array(Set(result.weakSdkFrameworks)).sorted()
         result.sdkDylibs = Array(Set(result.sdkDylibs)).sorted()
         return result
+    }
+
+    private func binaryImportDepsReferencedBySources(for target: TuistTarget, packagePath: String) throws -> [BazelLabel] {
+        let imports = importedModuleNames(in: target.sources)
+        guard !imports.isEmpty else {
+            return []
+        }
+
+        let binaryImportsByModule = Dictionary(
+            grouping: try graph.projects
+                .flatMap(\.targets)
+                .flatMap(\.dependencies)
+                .compactMap { dependency -> (module: String, label: BazelLabel)? in
+                    guard case let .xcframework(path) = dependency else {
+                        return nil
+                    }
+                    let xcframework = try xcframeworkImport(for: path)
+                    return (
+                        xcframework.name,
+                        BazelLabel(
+                            package: binaryImportPackage(for: path, consumingPackage: packagePath),
+                            name: xcframework.importName
+                        )
+                    )
+                },
+            by: \.module
+        ).compactMapValues(\.first?.label)
+
+        return imports.compactMap { binaryImportsByModule[$0] }.sorted()
+    }
+
+    private func importedModuleNames(in sourcePaths: [String]) -> Set<String> {
+        sourcePaths.reduce(into: Set<String>()) { result, path in
+            guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
+                return
+            }
+            result.formUnion(captures(pattern: #"(?m)^\s*(?:@_exported\s+)?import\s+(?:(?:class|struct|enum|protocol|func|var|typealias)\s+)?([A-Za-z_][A-Za-z0-9_]*)"#, in: content))
+            result.formUnion(captures(pattern: #"@import\s+([A-Za-z_][A-Za-z0-9_]*)"#, in: content))
+            result.formUnion(captures(pattern: #"#import\s+<([A-Za-z_][A-Za-z0-9_]*)/"#, in: content))
+        }
+    }
+
+    private func captures(pattern: String, in value: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return regex.matches(in: value, range: range).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let matchRange = Range(match.range(at: 1), in: value) else {
+                return nil
+            }
+            return String(value[matchRange])
+        }
+    }
+
+    private func firstMatch(pattern: String, in value: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = regex.firstMatch(in: value, range: range),
+              let matchRange = Range(match.range, in: value) else {
+            return nil
+        }
+        return String(value[matchRange])
+    }
+
+    private func replacingMatches(
+        pattern: String,
+        in value: String,
+        options: NSRegularExpression.Options = [],
+        with replacement: String
+    ) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
+            return value
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return regex.stringByReplacingMatches(in: value, range: range, withTemplate: replacement)
     }
 
     private func isExtensionProduct(_ product: ProductType) -> Bool {

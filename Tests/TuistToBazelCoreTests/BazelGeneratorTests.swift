@@ -623,6 +623,78 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rootBuild.contains("\":_MyStaticLibraryImport\""))
     }
 
+    func testAddsBinaryImportDepsForImportedModules() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-xcframework-source-import-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let xcframework = root.appendingPathComponent("Vendor/MyFramework.xcframework", isDirectory: true)
+        try writeXCFrameworkInfo(at: xcframework, libraryPath: "MyFramework.framework")
+        try fileManager.createDirectory(
+            at: xcframework.appendingPathComponent("ios-arm64_x86_64-simulator/MyFramework.framework", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let appSources = root.appendingPathComponent("App/Sources", isDirectory: true)
+        let frameworkSources = root.appendingPathComponent("Framework/Sources", isDirectory: true)
+        try fileManager.createDirectory(at: appSources, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: frameworkSources, withIntermediateDirectories: true)
+        try "import MyFramework\nstruct AppType {}\n".write(
+            to: appSources.appendingPathComponent("App.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "import MyFramework\npublic struct FrameworkType {}\n".write(
+            to: frameworkSources.appendingPathComponent("Framework.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "Fixture",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [appSources.appendingPathComponent("App.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "Framework")]
+                        ),
+                        TuistTarget(
+                            name: "Framework",
+                            product: .framework,
+                            bundleId: "dev.tuist.Framework",
+                            productName: "Framework",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [frameworkSources.appendingPathComponent("Framework.swift").path],
+                            resources: [],
+                            dependencies: [.xcframework(path: xcframework.path)]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("name = \"AppLib\""))
+        XCTAssertTrue(rootBuild.contains("\":_MyFrameworkImport\""))
+        XCTAssertTrue(rootBuild.contains("name = \"FrameworkLib\""))
+        XCTAssertTrue(rootBuild.contains("deps = [\n        \":_MyFrameworkImport\","))
+    }
+
     func testGeneratesSDKAndMixedLanguageAttributes() throws {
         let root = URL(fileURLWithPath: "/tmp/SDKFixture")
         let staticProject = root.appendingPathComponent("Modules/StaticFramework", isDirectory: true)
@@ -696,6 +768,106 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertFalse(staticBuild.contains("umbrella_header ="))
     }
 
+    func testGeneratesObjCLibraryForClangOnlyTargets() throws {
+        let root = URL(fileURLWithPath: "/tmp/ObjCOnlyFixture")
+        let graph = TuistGraph(
+            name: "ObjCOnlyFixture",
+            projects: [
+                TuistProject(
+                    name: "ObjCOnlyFixture",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "ObjCWrapper",
+                            product: .staticFramework,
+                            bundleId: "dev.tuist.ObjCWrapper",
+                            productName: "ObjCWrapper",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/ObjCWrapper.m").path],
+                            headers: TuistHeaders(
+                                publicHeaders: [root.appendingPathComponent("Sources/ObjCWrapperSupport.h").path],
+                                privateHeaders: [],
+                                projectHeaders: []
+                            ),
+                            resources: [],
+                            dependencies: [.sdk(name: "QuartzCore.framework", status: "required")]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("objc_library("))
+        XCTAssertTrue(rootBuild.contains("srcs = [\n        \"Sources/ObjCWrapper.m\""))
+        XCTAssertTrue(rootBuild.contains("hdrs = [\n        \"Sources/ObjCWrapperSupport.h\""))
+        XCTAssertTrue(rootBuild.contains("sdk_frameworks = [\n        \"QuartzCore\""))
+        XCTAssertTrue(rootBuild.contains("ios_static_framework("))
+        XCTAssertFalse(rootBuild.contains("mixed_language_library("))
+    }
+
+    func testOmitsObjCAutoLinkingStubSources() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-objc-autolink-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let sources = root.appendingPathComponent("Sources", isDirectory: true)
+        try fileManager.createDirectory(at: sources, withIntermediateDirectories: true)
+        try """
+        // Trigger auto-linking if MyFramework is never imported in the app.
+        @import MyFramework;
+        """.write(to: sources.appendingPathComponent("GMSEmpty.m"), atomically: true, encoding: .utf8)
+
+        let xcframework = root.appendingPathComponent("Vendor/MyFramework.xcframework", isDirectory: true)
+        try writeXCFrameworkInfo(at: xcframework, libraryPath: "MyFramework.framework")
+        try fileManager.createDirectory(
+            at: xcframework.appendingPathComponent("ios-arm64_x86_64-simulator/MyFramework.framework", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let graph = TuistGraph(
+            name: "ObjCAutolinkFixture",
+            projects: [
+                TuistProject(
+                    name: "ObjCAutolinkFixture",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "ObjCWrapper",
+                            product: .staticFramework,
+                            bundleId: "dev.tuist.ObjCWrapper",
+                            productName: "ObjCWrapper",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [sources.appendingPathComponent("GMSEmpty.m").path],
+                            headers: TuistHeaders(
+                                publicHeaders: [sources.appendingPathComponent("ObjCWrapperSupport.h").path],
+                                privateHeaders: [],
+                                projectHeaders: []
+                            ),
+                            resources: [],
+                            dependencies: [.xcframework(path: xcframework.path)]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("objc_library("))
+        XCTAssertTrue(rootBuild.contains("srcs = [\n        \".bazel/Generated/ObjCWrapperObjCStub.m\""))
+        XCTAssertFalse(rootBuild.contains("Sources/GMSEmpty.m"))
+        XCTAssertTrue(rootBuild.contains("\":_MyFrameworkImport\""))
+    }
+
     func testGeneratesMacOSFrameworkForMacOnlyDestinations() throws {
         let root = URL(fileURLWithPath: "/tmp/PlatformFixture")
         let graph = TuistGraph(
@@ -752,10 +924,13 @@ final class BazelGeneratorTests: XCTestCase {
         defer { try? fileManager.removeItem(at: root) }
 
         let source = root.appendingPathComponent("Modules/Framework/Sources/Provider.swift")
-        let assets = root.appendingPathComponent("Modules/Framework/Resources/Assets.xcassets", isDirectory: true)
+        let resources = root.appendingPathComponent("Modules/Framework/Resources", isDirectory: true)
+        let assets = resources.appendingPathComponent("Assets.xcassets", isDirectory: true)
         let imageSet = assets.appendingPathComponent("logo.imageset", isDirectory: true)
+        let nested = resources.appendingPathComponent("Nested.bundle", isDirectory: true)
         try fileManager.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fileManager.createDirectory(at: imageSet, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: nested, withIntermediateDirectories: true)
         try """
         import Foundation
 
@@ -768,6 +943,18 @@ final class BazelGeneratorTests: XCTestCase {
             atomically: true,
             encoding: .utf8
         )
+        let rootInfo = try PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleName": "Framework"],
+            format: .xml,
+            options: 0
+        )
+        try rootInfo.write(to: resources.appendingPathComponent("Info.plist"))
+        let nestedInfo = try PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleName": "Nested"],
+            format: .xml,
+            options: 0
+        )
+        try nestedInfo.write(to: nested.appendingPathComponent("Info.plist"))
 
         let graph = TuistGraph(
             name: "Fixture",
@@ -784,7 +971,7 @@ final class BazelGeneratorTests: XCTestCase {
                             projectPath: root.path,
                             infoPlistPath: nil,
                             sources: [source.path],
-                            resources: [TuistResource(path: assets.path, kind: .file, tags: [])],
+                            resources: [TuistResource(path: resources.path, kind: .file, tags: [])],
                             dependencies: []
                         ),
                     ]
@@ -799,6 +986,7 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rootBuild.contains(".bazel/Generated/FrameworkResourceAccessors.swift"))
         let accessors = try XCTUnwrap(rendered[".bazel/Generated/FrameworkResourceAccessors.swift"])
         XCTAssertTrue(accessors.contains("static var module: Bundle"))
+        XCTAssertEqual(accessors.components(separatedBy: "public enum Info").count - 1, 1)
     }
 
     func testGeneratesExtensionProductRulesAndPlists() throws {
