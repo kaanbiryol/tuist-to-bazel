@@ -150,7 +150,7 @@ struct BazelGenerator {
 
     private mutating func renderPackageBuild(packagePath: String, targets: [TuistTarget]) throws -> String {
         var build = BuildFile()
-        let loads = try loadsFor(targets)
+        let loads = try loadsFor(targets, packagePath: packagePath)
         for load in loads {
             build.add(load)
         }
@@ -173,14 +173,16 @@ struct BazelGenerator {
         return build.content
     }
 
-    private func loadsFor(_ targets: [TuistTarget]) throws -> [String] {
+    private func loadsFor(_ targets: [TuistTarget], packagePath: String) throws -> [String] {
         var iosRules: Set<String> = []
-        var needsSwift = false
+        var swiftRules: Set<String> = []
         var needsResources = false
         var needsAppleImportRules = false
 
         for target in targets {
-            needsSwift = needsSwift || target.product.isSwiftBacked
+            if target.product.isSwiftBacked {
+                swiftRules.insert("swift_library")
+            }
             needsResources = needsResources || !target.resources.isEmpty || target.product == .bundle
             switch target.product {
             case .app:
@@ -198,16 +200,31 @@ struct BazelGenerator {
             case .staticLibrary, .dynamicLibrary, .bundle, .unsupported:
                 break
             }
-            for dependency in target.dependencies {
-                if case .framework = dependency {
-                    needsAppleImportRules = true
+        }
+
+        let dependencyPairs = try dependenciesWithConsumingPackages(for: packagePath, targets: targets)
+        for pair in dependencyPairs {
+            for dependency in pair.dependencies {
+                switch dependency {
+                case let .framework(path):
+                    if binaryImportPackage(for: path, consumingPackage: pair.packagePath) == packagePath {
+                        needsAppleImportRules = true
+                    }
+                case let .library(_, _, swiftModuleMap):
+                    if swiftModuleMap != nil,
+                       binaryImportPackage(for: dependency, consumingPackage: pair.packagePath) == packagePath {
+                        swiftRules.insert("swift_import")
+                    }
+                case .target, .project, .xcframework, .package, .sdk, .xctest:
+                    break
                 }
             }
         }
 
         var loads: [String] = []
-        if needsSwift {
-            loads.append("load(\"@build_bazel_rules_swift//swift:swift.bzl\", \"swift_library\")")
+        if !swiftRules.isEmpty {
+            let ruleNames = swiftRules.sorted().map(Starlark.quote).joined(separator: ", ")
+            loads.append("load(\"@build_bazel_rules_swift//swift:swift.bzl\", \(ruleNames))")
         }
         if needsAppleImportRules {
             loads.append("load(\"@build_bazel_rules_apple//apple:apple.bzl\", \"apple_static_framework_import\")")
@@ -223,22 +240,87 @@ struct BazelGenerator {
     }
 
     private func renderBinaryImports(packagePath: String, targets: [TuistTarget]) throws -> [String] {
-        let frameworkPaths = Set(targets.flatMap(\.dependencies).compactMap { dependency -> String? in
-            if case let .framework(path) = dependency {
-                return path
+        let dependencyPairs = try dependenciesWithConsumingPackages(for: packagePath, targets: targets)
+        let frameworkPaths = Set(dependencyPairs.flatMap { pair in
+            pair.dependencies.compactMap { dependency -> String? in
+                if case let .framework(path) = dependency,
+                   binaryImportPackage(for: path, consumingPackage: pair.packagePath) == packagePath {
+                    return path
+                }
+                return nil
             }
-            return nil
         })
+        let libraryImports = Dictionary(
+            grouping: dependencyPairs.flatMap { pair in
+                pair.dependencies.compactMap { dependency -> LibraryImport? in
+                    if case let .library(path, _, swiftModuleMap) = dependency,
+                       let swiftModuleMap,
+                       binaryImportPackage(for: dependency, consumingPackage: pair.packagePath) == packagePath {
+                        return LibraryImport(path: path, swiftModuleMap: swiftModuleMap)
+                    }
+                    return nil
+                }
+            },
+            by: \.name
+        ).values.compactMap(\.first)
 
-        return try frameworkPaths.sorted().map { path in
+        let frameworkImports = try frameworkPaths.sorted().map { path in
             let relative = try paths.pathRelativeToPackage(path, packagePath: packagePath)
             return """
             apple_static_framework_import(
                 name = "\(binaryImportName(for: path))",
                 framework_imports = glob([\(Starlark.quote(relative + "/**"))]),
+                tags = ["manual"],
             )
             """
         }
+        let swiftImports = try libraryImports.sorted(by: { $0.name < $1.name }).map { libraryImport in
+            let archive = try paths.pathRelativeToPackage(libraryImport.path, packagePath: packagePath)
+            let swiftInterface = try paths.pathRelativeToPackage(libraryImport.swiftInterfacePath, packagePath: packagePath)
+            let swiftDoc = try paths.pathRelativeToPackage(libraryImport.swiftDocPath, packagePath: packagePath)
+            return """
+            swift_import(
+                name = "\(libraryImport.importName)",
+                archives = [\(Starlark.quote(archive))],
+                module_name = "\(libraryImport.name)",
+                swiftdoc = \(Starlark.quote(swiftDoc)),
+                swiftinterface = \(Starlark.quote(swiftInterface)),
+                tags = ["manual"],
+            )
+            """
+        }
+
+        return frameworkImports + swiftImports
+    }
+
+    private func dependenciesWithConsumingPackages(
+        for packagePath: String,
+        targets: [TuistTarget]
+    ) throws -> [(packagePath: String, dependencies: [TuistDependency])] {
+        let dependencyTargets = packagePath.isEmpty ? graph.projects.flatMap(\.targets) : targets
+        return try dependencyTargets.map { target in
+            (try paths.packagePath(for: target.projectPath), target.dependencies)
+        }
+    }
+
+    private func binaryImportPackage(for dependency: TuistDependency, consumingPackage: String) -> String? {
+        switch dependency {
+        case let .framework(path):
+            binaryImportPackage(for: path, consumingPackage: consumingPackage)
+        case .library:
+            ""
+        case .target, .project, .xcframework, .package, .sdk, .xctest:
+            nil
+        }
+    }
+
+    private func binaryImportPackage(for path: String, consumingPackage: String) -> String {
+        guard let relative = try? paths.pathRelativeToPackage(path, packagePath: consumingPackage),
+              relative != "..",
+              !relative.hasPrefix("../") else {
+            return ""
+        }
+        return consumingPackage
     }
 
     private mutating func renderTarget(_ target: TuistTarget, packagePath: String) throws -> String {
@@ -252,7 +334,7 @@ struct BazelGenerator {
         case .staticFramework:
             return try renderStaticFramework(target, packagePath: packagePath)
         case .staticLibrary, .dynamicLibrary:
-            return try renderSwiftLibrary(target, packagePath: packagePath, name: target.name, testonly: false)
+            return try renderLibrary(target, packagePath: packagePath)
         case .bundle:
             return try renderResourceBundle(target, packagePath: packagePath)
         case .unitTests:
@@ -353,6 +435,14 @@ struct BazelGenerator {
         )
         return parts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
             .replacingOccurrences(of: ")\n \n", with: ")\n")
+    }
+
+    private mutating func renderLibrary(_ target: TuistTarget, packagePath: String) throws -> String {
+        let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        return [
+            try renderResourceGroupIfNeeded(target, packagePath: packagePath),
+            try renderSwiftLibrary(target, packagePath: packagePath, name: target.name, testonly: false, manual: true, extraDeps: deps.codeDeps),
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
     }
 
     private mutating func renderUnitTest(_ target: TuistTarget, packagePath: String) throws -> String {
@@ -661,8 +751,15 @@ struct BazelGenerator {
             case let .sdk(name):
                 warnings.append("SDK dependency \(name) on target \(target.name) is not generated yet")
             case let .framework(path):
-                result.codeDeps.append(BazelLabel(package: packagePath, name: binaryImportName(for: path)))
-            case let .xcframework(path), let .library(path):
+                result.codeDeps.append(BazelLabel(package: binaryImportPackage(for: path, consumingPackage: packagePath), name: binaryImportName(for: path)))
+            case let .library(path, _, swiftModuleMap):
+                if let swiftModuleMap {
+                    let libraryImport = LibraryImport(path: path, swiftModuleMap: swiftModuleMap)
+                    result.codeDeps.append(BazelLabel(package: "", name: libraryImport.importName))
+                } else {
+                    warnings.append("binary dependency \(path) on target \(target.name) is not generated yet")
+                }
+            case let .xcframework(path):
                 warnings.append("binary dependency \(path) on target \(target.name) is not generated yet")
             case .xctest:
                 break
@@ -691,5 +788,38 @@ struct BazelGenerator {
 
     private func binaryImportName(for path: String) -> String {
         "_\(sanitizedModuleName(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent))Import"
+    }
+
+    private struct LibraryImport: Hashable {
+        let path: String
+        let swiftModuleMap: String
+
+        var name: String {
+            URL(fileURLWithPath: swiftModuleMap).deletingPathExtension().lastPathComponent
+        }
+
+        var importName: String {
+            "_\(sanitizedModuleName(name))Import"
+        }
+
+        var swiftInterfacePath: String {
+            let moduleDirectory = URL(fileURLWithPath: swiftModuleMap)
+            let preferred = moduleDirectory.appendingPathComponent("arm64-apple-ios-simulator.swiftinterface").path
+            if FileManager.default.fileExists(atPath: preferred) {
+                return preferred
+            }
+            let fallback = moduleDirectory.appendingPathComponent("x86_64-apple-ios-simulator.swiftinterface").path
+            if FileManager.default.fileExists(atPath: fallback) {
+                return fallback
+            }
+            return moduleDirectory.appendingPathComponent("\(name).swiftinterface").path
+        }
+
+        var swiftDocPath: String {
+            URL(fileURLWithPath: swiftInterfacePath)
+                .deletingPathExtension()
+                .appendingPathExtension("swiftdoc")
+                .path
+        }
     }
 }

@@ -133,7 +133,11 @@ struct TuistGraphParser {
                 return .xcframework(path: path)
             }
             if let library = element["library"]?.objectValue, let path = library["path"]?.stringValue {
-                return .library(path: path)
+                return .library(
+                    path: path,
+                    publicHeaders: library["publicHeaders"]?.stringValue,
+                    swiftModuleMap: library["swiftModuleMap"]?.stringValue
+                )
             }
             if let package = element["package"]?.objectValue, let product = package["product"]?.stringValue {
                 return .package(product: product)

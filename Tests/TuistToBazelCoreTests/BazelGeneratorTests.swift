@@ -98,4 +98,98 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("avoid_deps =") == true)
         XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("\":FrameworkLib\"") == true)
     }
+
+    func testGeneratesStaticLibraryDependenciesForProjectAndSwiftArchive() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-static-library-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let appProject = root
+        let aProject = root.appendingPathComponent("Modules/A", isDirectory: true)
+        let bProject = root.appendingPathComponent("Modules/B", isDirectory: true)
+        let cPrebuilt = root.appendingPathComponent("Modules/C/prebuilt/C", isDirectory: true)
+        let cSwiftModule = cPrebuilt.appendingPathComponent("C.swiftmodule", isDirectory: true)
+        try fileManager.createDirectory(at: cSwiftModule, withIntermediateDirectories: true)
+        try Data().write(to: cPrebuilt.appendingPathComponent("libC.a"))
+        try Data().write(to: cSwiftModule.appendingPathComponent("arm64-apple-ios-simulator.swiftinterface"))
+        try Data().write(to: cSwiftModule.appendingPathComponent("arm64-apple-ios-simulator.swiftdoc"))
+
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: appProject.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: appProject.path,
+                            infoPlistPath: nil,
+                            sources: [appProject.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [.project(target: "A", path: aProject.path)]
+                        ),
+                    ]
+                ),
+                TuistProject(
+                    name: "A",
+                    path: aProject.path,
+                    targets: [
+                        TuistTarget(
+                            name: "A",
+                            product: .staticLibrary,
+                            bundleId: nil,
+                            productName: "A",
+                            projectPath: aProject.path,
+                            infoPlistPath: nil,
+                            sources: [aProject.appendingPathComponent("Sources/A.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .project(target: "B", path: bProject.path),
+                                .library(
+                                    path: cPrebuilt.appendingPathComponent("libC.a").path,
+                                    publicHeaders: cPrebuilt.path,
+                                    swiftModuleMap: cSwiftModule.path
+                                ),
+                            ]
+                        ),
+                    ]
+                ),
+                TuistProject(
+                    name: "B",
+                    path: bProject.path,
+                    targets: [
+                        TuistTarget(
+                            name: "B",
+                            product: .staticLibrary,
+                            bundleId: nil,
+                            productName: "B",
+                            projectPath: bProject.path,
+                            infoPlistPath: nil,
+                            sources: [bProject.appendingPathComponent("Sources/B.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        let aBuild = try XCTUnwrap(rendered["Modules/A/BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("swift_import("))
+        XCTAssertTrue(rootBuild.contains("name = \"_CImport\""))
+        XCTAssertTrue(rootBuild.contains("swiftinterface = \"Modules/C/prebuilt/C/C.swiftmodule/arm64-apple-ios-simulator.swiftinterface\""))
+        XCTAssertTrue(rootBuild.contains("tags = [\"manual\"]"))
+        XCTAssertTrue(aBuild.contains("//Modules/B:B"))
+        XCTAssertTrue(aBuild.contains("//:_CImport"))
+        XCTAssertTrue(aBuild.contains("tags = [\"manual\"]"))
+    }
 }

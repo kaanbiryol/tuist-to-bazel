@@ -86,7 +86,7 @@ enum TuistDependency {
     case project(target: String, path: String)
     case framework(path: String)
     case xcframework(path: String)
-    case library(path: String)
+    case library(path: String, publicHeaders: String?, swiftModuleMap: String?)
     case package(product: String)
     case sdk(name: String)
     case xctest

@@ -68,9 +68,16 @@
       "localPath": "Fixtures/Tuist/generated_ios_app_with_static_libraries",
       "upstreamTuistPath": "examples/xcode/generated_ios_app_with_static_libraries",
       "category": "conformance",
-      "featureTags": ["ios", "static-library", "linking"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["static library coverage is not automated yet"]
+      "featureTags": ["ios", "static-library", "binary-library", "swift-import", "linking"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4",
+        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
+      ]
     },
     {
       "name": "generated_ios_app_with_xcframeworks",
