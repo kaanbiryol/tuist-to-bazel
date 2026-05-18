@@ -6,6 +6,7 @@ struct BazelGenerator {
     private let fileManager = FileManager.default
     private let resourceAccessors = ResourceAccessorGenerator()
     private let swiftPackageParser = SwiftPackageManifestParser()
+    private let iosTestRunnerName = "_ios_test_runner"
     private var warnings: [String] = []
     private var generatedFiles: [String: String] = [:]
     private var targetsByName: [String: TuistTarget] = [:]
@@ -428,6 +429,11 @@ struct BazelGenerator {
             build.addBlock(binaryImport)
         }
 
+        if needsIOSTestRunner(for: targets) {
+            build.add()
+            build.addBlock(renderIOSTestRunner())
+        }
+
         for target in targets.sorted(by: { $0.name < $1.name }) {
             build.add()
             build.addBlock(try renderTarget(target, packagePath: packagePath))
@@ -535,6 +541,7 @@ struct BazelGenerator {
         var watchOSRules: Set<String> = []
         var visionOSRules: Set<String> = []
         var swiftRules: Set<String> = []
+        var needsIOSTestRunner = false
         var needsMixedLanguage = false
         var needsObjC = false
         var needsResources = false
@@ -618,6 +625,7 @@ struct BazelGenerator {
                 switch platform(for: target) {
                 case .ios:
                     iosRules.insert("ios_unit_test")
+                    needsIOSTestRunner = true
                 case .macOS:
                     macOSRules.insert("macos_unit_test")
                 case .tvOS:
@@ -675,6 +683,9 @@ struct BazelGenerator {
         if !iosRules.isEmpty {
             let ruleNames = iosRules.sorted().map(Starlark.quote).joined(separator: ", ")
             loads.append("load(\"@build_bazel_rules_apple//apple:ios.bzl\", \(ruleNames))")
+        }
+        if needsIOSTestRunner {
+            loads.append("load(\"@build_bazel_rules_apple//apple/testing/default_runner:ios_test_runner.bzl\", \"ios_test_runner\")")
         }
         if !macOSRules.isEmpty {
             let ruleNames = macOSRules.sorted().map(Starlark.quote).joined(separator: ", ")
@@ -1382,6 +1393,9 @@ struct BazelGenerator {
             lines.append("    test_host = \"\(testHost.localDescription(in: packagePath))\",")
             lines.append("    test_host_is_bundle_loader = True,")
         }
+        if platform == .ios {
+            lines.append("    runner = \":\(iosTestRunnerName)\",")
+        }
         lines.append(")")
 
         return [
@@ -1403,6 +1417,21 @@ struct BazelGenerator {
             srcs = \(Starlark.list(srcs, indent: 4)),
             module_name = "\(sanitizedModuleName(target.productName))",
         \(pluginsAttribute)\(tagsAttribute)    deps = \(Starlark.list(deps.codeDeps.map { $0.localDescription(in: packagePath) }, indent: 4)),
+        )
+        """
+    }
+
+    private func needsIOSTestRunner(for targets: [TuistTarget]) -> Bool {
+        targets.contains { target in
+            target.product == .unitTests && platform(for: target) == .ios
+        }
+    }
+
+    private func renderIOSTestRunner() -> String {
+        """
+        ios_test_runner(
+            name = "\(iosTestRunnerName)",
+            device_type = "iPhone 15",
         )
         """
     }
