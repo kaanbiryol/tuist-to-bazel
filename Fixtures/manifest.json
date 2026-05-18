@@ -163,8 +163,15 @@
       "upstreamTuistPath": "examples/xcode/generated_app_with_alamofire",
       "category": "conformance",
       "featureTags": ["spm", "external", "tests"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["third-party dependency support is not automated yet"]
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist install",
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //..."
+      ]
     },
     {
       "name": "generated_ios_app_with_remote_swift_package",
