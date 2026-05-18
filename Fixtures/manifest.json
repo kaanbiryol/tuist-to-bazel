@@ -52,9 +52,16 @@
       "localPath": "Fixtures/Tuist/generated_ios_app_with_static_frameworks_with_resources",
       "upstreamTuistPath": "examples/xcode/generated_ios_app_with_static_frameworks_with_resources",
       "category": "conformance",
-      "featureTags": ["ios", "static-framework", "resources"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["static framework resource coverage is not automated yet"]
+      "featureTags": ["ios", "static-framework", "resources", "binary-framework", "fonts"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //...",
+        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
+      ]
     },
     {
       "name": "generated_ios_app_with_static_libraries",

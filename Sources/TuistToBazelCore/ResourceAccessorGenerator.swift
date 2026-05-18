@@ -267,6 +267,14 @@ struct ResourceAccessorGenerator {
             public let name: String
         }
 
+        #if canImport(UIKit)
+        public extension UIFont {
+            convenience init?(font: \(moduleName)FontConvertible, size: CGFloat) {
+                self.init(name: font.name, size: size)
+            }
+        }
+        #endif
+
         public enum \(moduleName)FontFamily {
         \(familyBlocks)
         }

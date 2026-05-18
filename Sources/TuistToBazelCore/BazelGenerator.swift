@@ -159,6 +159,12 @@ struct BazelGenerator {
         }
         build.add("package(default_visibility = [\"//visibility:public\"])")
 
+        let binaryImports = try renderBinaryImports(packagePath: packagePath, targets: targets)
+        for binaryImport in binaryImports {
+            build.add()
+            build.addBlock(binaryImport)
+        }
+
         for target in targets.sorted(by: { $0.name < $1.name }) {
             build.add()
             build.addBlock(try renderTarget(target, packagePath: packagePath))
@@ -171,6 +177,7 @@ struct BazelGenerator {
         var iosRules: Set<String> = []
         var needsSwift = false
         var needsResources = false
+        var needsAppleImportRules = false
 
         for target in targets {
             needsSwift = needsSwift || target.product.isSwiftBacked
@@ -191,11 +198,19 @@ struct BazelGenerator {
             case .staticLibrary, .dynamicLibrary, .bundle, .unsupported:
                 break
             }
+            for dependency in target.dependencies {
+                if case .framework = dependency {
+                    needsAppleImportRules = true
+                }
+            }
         }
 
         var loads: [String] = []
         if needsSwift {
             loads.append("load(\"@build_bazel_rules_swift//swift:swift.bzl\", \"swift_library\")")
+        }
+        if needsAppleImportRules {
+            loads.append("load(\"@build_bazel_rules_apple//apple:apple.bzl\", \"apple_static_framework_import\")")
         }
         if !iosRules.isEmpty {
             let ruleNames = iosRules.sorted().map(Starlark.quote).joined(separator: ", ")
@@ -205,6 +220,25 @@ struct BazelGenerator {
             loads.append("load(\"@build_bazel_rules_apple//apple:resources.bzl\", \"apple_bundle_import\", \"apple_resource_bundle\", \"apple_resource_group\")")
         }
         return loads
+    }
+
+    private func renderBinaryImports(packagePath: String, targets: [TuistTarget]) throws -> [String] {
+        let frameworkPaths = Set(targets.flatMap(\.dependencies).compactMap { dependency -> String? in
+            if case let .framework(path) = dependency {
+                return path
+            }
+            return nil
+        })
+
+        return try frameworkPaths.sorted().map { path in
+            let relative = try paths.pathRelativeToPackage(path, packagePath: packagePath)
+            return """
+            apple_static_framework_import(
+                name = "\(binaryImportName(for: path))",
+                framework_imports = glob([\(Starlark.quote(relative + "/**"))]),
+            )
+            """
+        }
     }
 
     private mutating func renderTarget(_ target: TuistTarget, packagePath: String) throws -> String {
@@ -314,7 +348,7 @@ struct BazelGenerator {
             ios_static_framework(
                 name = "\(target.name)",
             \(extensionSafeAttribute(target, indent: 4))    minimum_os_version = "17.0",
-            \(optionalLabelListAttribute("deps", frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
+            \(optionalLabelListAttribute("avoid_deps", deps.codeDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("deps", frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         )
         return parts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
@@ -626,7 +660,9 @@ struct BazelGenerator {
                 warnings.append("package dependency \(product) on target \(target.name) is not generated yet")
             case let .sdk(name):
                 warnings.append("SDK dependency \(name) on target \(target.name) is not generated yet")
-            case let .framework(path), let .xcframework(path), let .library(path):
+            case let .framework(path):
+                result.codeDeps.append(BazelLabel(package: packagePath, name: binaryImportName(for: path)))
+            case let .xcframework(path), let .library(path):
                 warnings.append("binary dependency \(path) on target \(target.name) is not generated yet")
             case .xctest:
                 break
@@ -651,5 +687,9 @@ struct BazelGenerator {
         case .framework, .xcframework, .library, .package, .sdk, .xctest:
             nil
         }
+    }
+
+    private func binaryImportName(for path: String) -> String {
+        "_\(sanitizedModuleName(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent))Import"
     }
 }

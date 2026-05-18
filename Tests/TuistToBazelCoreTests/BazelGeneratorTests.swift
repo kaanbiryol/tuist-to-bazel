@@ -23,6 +23,7 @@ final class BazelGeneratorTests: XCTestCase {
                             dependencies: [
                                 .project(target: "Framework", path: "/tmp/Fixture/Framework"),
                                 .target(name: "AppExtension"),
+                                .framework(path: "/tmp/Fixture/App/Vendor/Prebuilt.framework"),
                             ]
                         ),
                         TuistTarget(
@@ -64,6 +65,17 @@ final class BazelGeneratorTests: XCTestCase {
                             resources: [],
                             dependencies: []
                         ),
+                        TuistTarget(
+                            name: "StaticFramework",
+                            product: .staticFramework,
+                            bundleId: "dev.tuist.StaticFramework",
+                            productName: "StaticFramework",
+                            projectPath: "/tmp/Fixture/Framework",
+                            infoPlistPath: "/tmp/Fixture/Framework/StaticFramework.plist",
+                            sources: ["/tmp/Fixture/Framework/Sources/StaticFramework.swift"],
+                            resources: [],
+                            dependencies: [.target(name: "Framework")]
+                        ),
                     ]
                 ),
             ]
@@ -74,10 +86,16 @@ final class BazelGeneratorTests: XCTestCase {
 
         XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_application(") == true)
         XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_extension(") == true)
+        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("apple_static_framework_import(") == true)
+        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("name = \"_PrebuiltImport\"") == true)
+        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("\":_PrebuiltImport\"") == true)
         XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_unit_test(") == true)
         XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("tags = [\"manual\"]") == true)
         XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("test_host = \":App\"") == true)
         XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("ios_framework(") == true)
         XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("extension_safe = True") == true)
+        XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("ios_static_framework(") == true)
+        XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("avoid_deps =") == true)
+        XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("\":FrameworkLib\"") == true)
     }
 }
