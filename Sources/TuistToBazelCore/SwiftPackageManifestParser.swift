@@ -5,6 +5,7 @@ struct SwiftPackageManifest {
     let remotePackages: [TuistRemoteSwiftPackage]
     let products: [SwiftPackageProduct]
     let targets: [SwiftPackageTarget]
+    let binaryTargets: [SwiftPackageBinaryTarget]
 }
 
 struct SwiftPackageProduct {
@@ -17,6 +18,11 @@ struct SwiftPackageTarget {
     let sources: [String]
     let dependencies: [String]
     let packageDependencies: [String]
+}
+
+struct SwiftPackageBinaryTarget {
+    let name: String
+    let path: String
 }
 
 struct SwiftPackageManifestParser {
@@ -46,7 +52,8 @@ struct SwiftPackageManifestParser {
             packagePath: packagePath,
             remotePackages: parseRemotePackages(in: manifest),
             products: products.isEmpty ? targets.map { SwiftPackageProduct(name: $0.name, targets: [$0.name]) } : products,
-            targets: targets
+            targets: targets,
+            binaryTargets: parseBinaryTargets(in: manifest, packageURL: packageURL)
         )
     }
 
@@ -105,6 +112,18 @@ struct SwiftPackageManifestParser {
         orderedUnique(
             captures(pattern: #"\.product\s*\(\s*name:\s*"([^"]+)""#, in: value)
         )
+    }
+
+    private func parseBinaryTargets(in manifest: String, packageURL: URL) -> [SwiftPackageBinaryTarget] {
+        capturePairs(
+            pattern: #"\.binaryTarget\s*\(\s*name:\s*"([^"]+)"\s*,\s*path:\s*"([^"]+)""#,
+            in: manifest
+        ).map { name, path in
+            SwiftPackageBinaryTarget(
+                name: name,
+                path: packageURL.appendingPathComponent(path).standardizedFileURL.path
+            )
+        }
     }
 
     private func sourceTargetNames(in packageURL: URL) throws -> [String] {

@@ -236,6 +236,78 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(packageBuild.contains("Sources/LibraryB/LibraryB.swift"))
     }
 
+    func testGeneratesLocalBinarySwiftPackageDependencies() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-local-binary-spm-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let package = root.appendingPathComponent("Packages/LocalPackage", isDirectory: true)
+        let xcframework = package.appendingPathComponent("MyFramework/prebuilt/MyFramework.xcframework", isDirectory: true)
+        let swiftModule = xcframework.appendingPathComponent(
+            "ios-arm64_x86_64-simulator/MyFramework.framework/Modules/MyFramework.swiftmodule",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: swiftModule, withIntermediateDirectories: true)
+        try Data().write(to: swiftModule.appendingPathComponent("arm64-apple-ios-simulator.swiftinterface"))
+        try writeXCFrameworkInfo(at: xcframework, libraryPath: "MyFramework.framework")
+        try """
+        // swift-tools-version: 5.9
+        import PackageDescription
+
+        let package = Package(
+            name: "LocalPackage",
+            products: [
+                .library(name: "MyFramework", targets: ["MyFramework"]),
+            ],
+            targets: [
+                .binaryTarget(
+                    name: "MyFramework",
+                    path: "MyFramework/prebuilt/MyFramework.xcframework"
+                ),
+            ]
+        )
+        """.write(to: package.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+
+        let graph = TuistGraph(
+            name: "LocalBinarySPMFixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [.package(product: "MyFramework")]
+                        ),
+                    ]
+                ),
+            ],
+            localSwiftPackages: [TuistLocalSwiftPackage(path: package.path)]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let result = try generator.render()
+        let rendered = result.files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        let packageBuild = try XCTUnwrap(rendered["Packages/LocalPackage/BUILD.bazel"])
+        XCTAssertFalse(result.warnings.contains { $0.contains("package dependency") })
+        XCTAssertTrue(rootBuild.contains("//Packages/LocalPackage:MyFramework"))
+        XCTAssertTrue(packageBuild.contains("load(\"@build_bazel_rules_apple//apple:apple.bzl\", \"apple_dynamic_xcframework_import\")"))
+        XCTAssertTrue(packageBuild.contains("apple_dynamic_xcframework_import(\n    name = \"MyFramework\""))
+        XCTAssertTrue(packageBuild.contains("features = ["))
+        XCTAssertTrue(packageBuild.contains("\"-swift.layering_check\""))
+        XCTAssertTrue(packageBuild.contains("xcframework_imports = glob([\"MyFramework/prebuilt/MyFramework.xcframework/**\"])"))
+    }
+
     func testGeneratesRemoteSwiftPackageDependencies() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

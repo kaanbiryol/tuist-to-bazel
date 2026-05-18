@@ -126,7 +126,7 @@ struct BazelGenerator {
             let manifest = try swiftPackageParser.parse(packagePath: localPackage.path)
             localSwiftPackageManifests[packagePath] = manifest
 
-            let targetNames = Set(manifest.targets.map(\.name))
+            let targetNames = localSwiftPackageTargetNamesToGenerate(manifest)
             for product in manifest.products {
                 guard let targetName = product.targets.first, product.targets.count == 1, targetNames.contains(targetName) else {
                     warnings.append("local Swift package product \(product.name) is not generated because it has multiple or missing targets")
@@ -140,7 +140,10 @@ struct BazelGenerator {
                 }
             }
 
-            for target in manifest.targets {
+            for target in manifest.targets where targetNames.contains(target.name) {
+                localSwiftPackageProductLabels[target.name] = BazelLabel(package: packagePath, name: target.name)
+            }
+            for target in manifest.binaryTargets where targetNames.contains(target.name) {
                 localSwiftPackageProductLabels[target.name] = BazelLabel(package: packagePath, name: target.name)
             }
         }
@@ -425,14 +428,35 @@ struct BazelGenerator {
 
     private func renderLocalSwiftPackageBuild(packagePath: String, manifest: SwiftPackageManifest) throws -> String {
         var build = BuildFile()
-        let buildableTargets = manifest.targets.filter { !$0.sources.isEmpty }
+        let targetNames = localSwiftPackageTargetNamesToGenerate(manifest)
+        let buildableTargets = manifest.targets.filter { targetNames.contains($0.name) && !$0.sources.isEmpty }
+        let binaryImports = try manifest.binaryTargets
+            .filter { targetNames.contains($0.name) }
+            .map { try (target: $0, xcframework: xcframeworkImport(for: $0.path)) }
         if !buildableTargets.isEmpty {
             build.add("load(\"@build_bazel_rules_swift//swift:swift.bzl\", \"swift_library\")")
+        }
+        if !binaryImports.isEmpty {
+            let ruleNames = Set(binaryImports.map(\.xcframework.ruleName)).sorted().map(Starlark.quote).joined(separator: ", ")
+            build.add("load(\"@build_bazel_rules_apple//apple:apple.bzl\", \(ruleNames))")
+        }
+        if !buildableTargets.isEmpty || !binaryImports.isEmpty {
             build.add()
         }
         build.add("package(default_visibility = [\"//visibility:public\"])")
 
-        let targetNames = Set(buildableTargets.map(\.name))
+        for binaryImport in binaryImports.sorted(by: { $0.target.name < $1.target.name }) {
+            let relative = try paths.pathRelativeToPackage(binaryImport.target.path, packagePath: packagePath)
+            let featuresAttribute = binaryImport.xcframework.features.isEmpty ? "" : "    features = \(Starlark.list(binaryImport.xcframework.features, indent: 4)),\n"
+            build.add()
+            build.addBlock("""
+            \(binaryImport.xcframework.ruleName)(
+                name = "\(binaryImport.target.name)",
+            \(featuresAttribute)    xcframework_imports = glob([\(Starlark.quote(relative + "/**"))]),
+            )
+            """)
+        }
+
         for target in buildableTargets.sorted(by: { $0.name < $1.name }) {
             let sourceLabels = try target.sources.map {
                 try paths.pathRelativeToPackage($0, packagePath: packagePath)
@@ -469,6 +493,25 @@ struct BazelGenerator {
         }
 
         return build.content
+    }
+
+    private func localSwiftPackageTargetNamesToGenerate(_ manifest: SwiftPackageManifest) -> Set<String> {
+        let targetsByName = Dictionary(uniqueKeysWithValues: manifest.targets.map { ($0.name, $0) })
+        let binaryTargetNames = Set(manifest.binaryTargets.map(\.name))
+        let allTargetNames = Set(targetsByName.keys).union(binaryTargetNames)
+        var included: Set<String> = []
+        var pending = manifest.products.flatMap(\.targets)
+
+        while let name = pending.popLast() {
+            guard allTargetNames.contains(name), included.insert(name).inserted else {
+                continue
+            }
+            if let target = targetsByName[name] {
+                pending.append(contentsOf: target.dependencies)
+            }
+        }
+
+        return included
     }
 
     private func loadsFor(_ targets: [TuistTarget], packagePath: String) throws -> [String] {
