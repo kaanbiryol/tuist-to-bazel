@@ -69,6 +69,7 @@ struct TuistGraphParser {
         }
 
         let product = ProductType(rawGraphValue: object["product"]?.stringValue ?? "unsupported")
+        let buildableFolderFiles = parseBuildableFolderFiles(object["buildableFolders"])
         return TuistTarget(
             name: name,
             product: product,
@@ -78,9 +79,11 @@ struct TuistGraphParser {
             projectPath: projectPath,
             infoPlistPath: parseInfoPlist(object["infoPlist"]),
             infoPlistEntries: parseInfoPlistEntries(object["infoPlist"]),
-            sources: parsePathArray(object["sources"]),
+            sources: orderedUnique(parsePathArray(object["sources"]) + buildableFolderFiles.filter(isBuildableSource)),
             headers: parseHeaders(object["headers"]),
-            resources: parseResources(object["resources"]),
+            resources: parseResources(object["resources"]) + buildableFolderFiles.filter(isBuildableResource).map {
+                TuistResource(path: $0, kind: .file, tags: [])
+            },
             dependencies: parseDependencies(object["dependencies"])
         )
     }
@@ -152,6 +155,29 @@ struct TuistGraphParser {
         value?.arrayValue?.compactMap { element in
             element["path"]?.stringValue
         } ?? []
+    }
+
+    private func parseBuildableFolderFiles(_ value: JSONValue?) -> [String] {
+        value?.arrayValue?.flatMap { folder in
+            folder["resolvedFiles"]?.arrayValue?.compactMap { element in
+                element["path"]?.stringValue
+            } ?? []
+        } ?? []
+    }
+
+    private func isBuildableSource(_ path: String) -> Bool {
+        ["swift", "c", "cc", "cpp", "cxx", "m", "mm"].contains(URL(fileURLWithPath: path).pathExtension)
+    }
+
+    private func isBuildableResource(_ path: String) -> Bool {
+        let ignoredExtensions = ["h", "hh", "hpp", "hxx"]
+        let fileName = URL(fileURLWithPath: path).lastPathComponent
+        return !isBuildableSource(path) && !ignoredExtensions.contains(URL(fileURLWithPath: path).pathExtension) && fileName != ".DS_Store"
+    }
+
+    private func orderedUnique(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        return values.filter { seen.insert($0).inserted }
     }
 
     private func parseResources(_ value: JSONValue?) -> [TuistResource] {

@@ -70,7 +70,7 @@ struct ResourceAccessorGenerator {
     private func topLevelAccessorNames(for target: TuistTarget) -> [String] {
         let moduleName = swiftTypeIdentifier(target.productName, fallback: target.name)
         let resources = resourceInventory(for: target)
-        var names = ["\(moduleName)Resources"]
+        var names = ["\(moduleName)Resources", "Bundle.module"]
         if !resources.assets.isEmpty {
             names.append("\(moduleName)Asset")
         }

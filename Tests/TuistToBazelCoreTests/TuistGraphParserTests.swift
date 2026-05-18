@@ -108,4 +108,43 @@ final class TuistGraphParserTests: XCTestCase {
             .dictionary(["EXExtensionPointIdentifier": .string("com.apple.appintents-extension")])
         )
     }
+
+    func testParsesBuildableFolderResolvedFilesAsSourcesAndResources() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {
+                "Framework": {
+                  "product": "framework",
+                  "bundleId": "dev.tuist.Framework",
+                  "productName": "Framework",
+                  "infoPlist": { "extendingDefault": { "with": {} } },
+                  "sources": [],
+                  "resources": { "resources": [] },
+                  "buildableFolders": [
+                    {
+                      "path": "/tmp/App/Modules/Framework",
+                      "resolvedFiles": [
+                        { "path": "/tmp/App/Modules/Framework/Sources/Provider.swift" },
+                        { "path": "/tmp/App/Modules/Framework/Resources/Assets.xcassets" },
+                        { "path": "/tmp/App/Modules/Framework/Sources/Internal.h" }
+                      ]
+                    }
+                  ],
+                  "dependencies": []
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let target = try TuistGraphParser().parse(data: Data(json.utf8)).projects[0].targets[0]
+
+        XCTAssertEqual(target.sources, ["/tmp/App/Modules/Framework/Sources/Provider.swift"])
+        XCTAssertEqual(target.resources.map(\.path), ["/tmp/App/Modules/Framework/Resources/Assets.xcassets"])
+    }
 }

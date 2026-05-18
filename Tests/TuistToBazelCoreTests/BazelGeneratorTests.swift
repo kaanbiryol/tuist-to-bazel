@@ -377,6 +377,62 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rootBuild.contains("minimum_os_version = \"14.0\""))
     }
 
+    func testGeneratesBundleModuleAccessorWhenResourceSourceUsesBundleModule() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-buildable-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("Modules/Framework/Sources/Provider.swift")
+        let assets = root.appendingPathComponent("Modules/Framework/Resources/Assets.xcassets", isDirectory: true)
+        let imageSet = assets.appendingPathComponent("logo.imageset", isDirectory: true)
+        try fileManager.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: imageSet, withIntermediateDirectories: true)
+        try """
+        import Foundation
+
+        enum Provider {
+            static let bundle = Bundle.module
+        }
+        """.write(to: source, atomically: true, encoding: .utf8)
+        try #"{"images":[],"info":{"author":"xcode","version":1}}"#.write(
+            to: imageSet.appendingPathComponent("Contents.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "Framework",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "Framework",
+                            product: .framework,
+                            bundleId: "dev.tuist.Framework",
+                            productName: "Framework",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [source.path],
+                            resources: [TuistResource(path: assets.path, kind: .file, tags: [])],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains(".bazel/Generated/FrameworkResourceAccessors.swift"))
+        let accessors = try XCTUnwrap(rendered[".bazel/Generated/FrameworkResourceAccessors.swift"])
+        XCTAssertTrue(accessors.contains("static var module: Bundle"))
+    }
+
     func testGeneratesExtensionProductRulesAndPlists() throws {
         let root = URL(fileURLWithPath: "/tmp/ExtensionFixture")
         let graph = TuistGraph(
