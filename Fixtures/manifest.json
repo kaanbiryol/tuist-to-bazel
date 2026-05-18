@@ -117,8 +117,14 @@
       "upstreamTuistPath": "examples/xcode/generated_ios_app_with_extensions",
       "category": "conformance",
       "featureTags": ["ios", "app-extension", "messages-extension", "sticker-extension", "extensionkit", "bundle"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["extension product coverage is not automated yet"]
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
+      ]
     },
     {
       "name": "generated_ios_app_with_headers",

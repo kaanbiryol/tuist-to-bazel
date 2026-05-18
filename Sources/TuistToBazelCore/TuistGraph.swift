@@ -18,10 +18,19 @@ struct TuistTarget {
     let productName: String
     let projectPath: String
     let infoPlistPath: String?
+    var infoPlistEntries: [String: PlistValue] = [:]
     let sources: [String]
     var headers: TuistHeaders = .empty
     let resources: [TuistResource]
     let dependencies: [TuistDependency]
+}
+
+enum PlistValue: Equatable {
+    case string(String)
+    case bool(Bool)
+    case number(Double)
+    case array([PlistValue])
+    case dictionary([String: PlistValue])
 }
 
 struct TuistHeaders {
@@ -39,8 +48,11 @@ struct TuistHeaders {
 enum ProductType: String {
     case app
     case appExtension
+    case extensionKitExtension
     case framework
+    case messagesExtension
     case staticFramework
+    case stickerPackExtension
     case staticLibrary
     case dynamicLibrary
     case bundle
@@ -54,10 +66,16 @@ enum ProductType: String {
             self = .app
         case "app_extension", "appExtension":
             self = .appExtension
+        case "extension_kit_extension", "extensionKitExtension":
+            self = .extensionKitExtension
         case "framework":
             self = .framework
+        case "messages_extension", "messagesExtension":
+            self = .messagesExtension
         case "staticFramework", "static_framework":
             self = .staticFramework
+        case "sticker_pack_extension", "stickerPackExtension":
+            self = .stickerPackExtension
         case "staticLibrary", "static_library":
             self = .staticLibrary
         case "dynamicLibrary", "dynamic_library":
@@ -75,9 +93,9 @@ enum ProductType: String {
 
     var isSwiftBacked: Bool {
         switch self {
-        case .app, .appExtension, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .unitTests, .uiTests:
+        case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .staticLibrary, .dynamicLibrary, .unitTests, .uiTests:
             true
-        case .bundle, .unsupported:
+        case .bundle, .stickerPackExtension, .unsupported:
             false
         }
     }

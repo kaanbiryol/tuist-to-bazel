@@ -328,6 +328,149 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertFalse(staticBuild.contains("umbrella_header ="))
     }
 
+    func testGeneratesExtensionProductRulesAndPlists() throws {
+        let root = URL(fileURLWithPath: "/tmp/ExtensionFixture")
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .target(name: "NotificationServiceExtension"),
+                                .target(name: "AppIntentExtension"),
+                                .target(name: "StickersPackExtension"),
+                            ]
+                        ),
+                        TuistTarget(
+                            name: "AppWithMessagesExtension",
+                            product: .app,
+                            bundleId: "dev.tuist.App2",
+                            productName: "AppWithMessagesExtension",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .target(name: "MessageExtension"),
+                                .target(name: "NotificationServiceExtension"),
+                            ]
+                        ),
+                        TuistTarget(
+                            name: "NotificationServiceExtension",
+                            product: .appExtension,
+                            bundleId: "dev.tuist.App.NotificationServiceExtension",
+                            productName: "NotificationServiceExtension",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            infoPlistEntries: [
+                                "CFBundleDisplayName": .string("$(PRODUCT_NAME)"),
+                                "NSExtension": .dictionary([
+                                    "NSExtensionPointIdentifier": .string("com.apple.usernotifications.service"),
+                                    "NSExtensionPrincipalClass": .string("$(PRODUCT_MODULE_NAME).NotificationService"),
+                                ]),
+                            ],
+                            sources: [root.appendingPathComponent("NotificationServiceExtension/NotificationService.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "AppIntentExtension",
+                            product: .extensionKitExtension,
+                            bundleId: "dev.tuist.App.AppIntentExtension",
+                            productName: "AppIntentExtension",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            infoPlistEntries: [
+                                "EXAppExtensionAttributes": .dictionary([
+                                    "EXExtensionPointIdentifier": .string("com.apple.appintents-extension"),
+                                ]),
+                            ],
+                            sources: [root.appendingPathComponent("AppIntentExtension/Sources/AppIntent.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "MessageExtension",
+                            product: .messagesExtension,
+                            bundleId: "dev.tuist.App2.MessageExtension",
+                            productName: "MessageExtension",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            infoPlistEntries: [
+                                "NSExtension": .dictionary([
+                                    "NSExtensionMainStoryboard": .string("MainInterface"),
+                                    "NSExtensionPointIdentifier": .string("com.apple.message-payload-provider"),
+                                ]),
+                            ],
+                            sources: [root.appendingPathComponent("MessageExtension/Sources/MessagesViewController.swift").path],
+                            resources: [
+                                TuistResource(
+                                    path: root.appendingPathComponent("MessageExtension/Resources/Base.lproj/MainInterface.storyboard").path,
+                                    kind: .file,
+                                    tags: []
+                                ),
+                            ],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "StickersPackExtension",
+                            product: .stickerPackExtension,
+                            bundleId: "dev.tuist.App.StickersPackExtension",
+                            productName: "StickersPackExtension",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            infoPlistEntries: [
+                                "NSExtension": .dictionary([
+                                    "NSExtensionPointIdentifier": .string("com.apple.message-payload-provider"),
+                                ]),
+                            ],
+                            sources: [],
+                            resources: [
+                                TuistResource(
+                                    path: root.appendingPathComponent("StickersPackExtension/Stickers.xcassets").path,
+                                    kind: .file,
+                                    tags: []
+                                ),
+                            ],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("ios_extension("))
+        XCTAssertTrue(rootBuild.contains("extensionkit_extension = True"))
+        XCTAssertTrue(rootBuild.contains("ios_imessage_extension("))
+        XCTAssertTrue(rootBuild.contains("ios_sticker_pack_extension("))
+        XCTAssertTrue(rootBuild.contains("name = \"_AppWithMessagesExtension_NotificationServiceExtension\""))
+        XCTAssertTrue(rootBuild.contains("bundle_id = \"dev.tuist.App2.NotificationServiceExtension\""))
+        XCTAssertTrue(rootBuild.contains("executable_name = \"NotificationServiceExtension\""))
+        XCTAssertTrue(rootBuild.contains("\":_AppWithMessagesExtension_NotificationServiceExtension\""))
+
+        let notificationPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/NotificationServiceExtension-Info.plist"])
+        XCTAssertTrue(notificationPlist.contains("NotificationServiceExtension.NotificationService"))
+        let wrapperPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/_AppWithMessagesExtension_NotificationServiceExtension-Info.plist"])
+        XCTAssertTrue(wrapperPlist.contains("dev.tuist.App2.NotificationServiceExtension"))
+        let appIntentPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/AppIntentExtension-Info.plist"])
+        XCTAssertTrue(appIntentPlist.contains("com.apple.appintents-extension"))
+    }
+
     private func writeXCFrameworkInfo(at url: URL, libraryPath: String) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         let plist: [String: Any] = [

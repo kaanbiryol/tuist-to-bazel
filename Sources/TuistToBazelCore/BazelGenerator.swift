@@ -11,6 +11,7 @@ struct BazelGenerator {
     private var targetsByPathAndName: [String: TuistTarget] = [:]
     private var targetsWithTestConsumers: Set<String> = []
     private var extensionSafeTargets: Set<String> = []
+    private var appSpecificExtensionConsumers: [String: [AppSpecificExtensionConsumer]] = [:]
 
     init(graph: TuistGraph, paths: PathContext) {
         self.graph = graph
@@ -54,11 +55,29 @@ struct BazelGenerator {
             }
         }
 
-        for target in graph.projects.flatMap(\.targets) where target.product == .appExtension {
+        for target in graph.projects.flatMap(\.targets) where isExtensionProduct(target.product) {
             for dependency in target.dependencies {
                 if let resolved = resolveTargetDependency(dependency),
                    resolved.product == .framework || resolved.product == .staticFramework {
                     extensionSafeTargets.insert(targetIdentity(resolved))
+                }
+            }
+        }
+
+        for app in graph.projects.flatMap(\.targets) where app.product == .app {
+            for dependency in app.dependencies {
+                guard let extensionTarget = resolveTargetDependency(dependency),
+                      isExtensionProduct(extensionTarget.product),
+                      requiresAppSpecificExtensionBundle(extensionTarget, app: app) else {
+                    continue
+                }
+                let consumer = AppSpecificExtensionConsumer(
+                    wrapperName: appSpecificExtensionName(for: extensionTarget, app: app),
+                    bundleId: appSpecificExtensionBundleId(for: extensionTarget, app: app)
+                )
+                let identity = targetIdentity(extensionTarget)
+                if appSpecificExtensionConsumers[identity]?.contains(where: { $0.wrapperName == consumer.wrapperName }) != true {
+                    appSpecificExtensionConsumers[identity, default: []].append(consumer)
                 }
             }
         }
@@ -108,7 +127,8 @@ struct BazelGenerator {
     }
 
     private mutating func renderRootBuild() throws -> String {
-        guard let app = graph.projects.flatMap(\.targets).first(where: { $0.product == .app }) else {
+        let apps = graph.projects.flatMap(\.targets).filter { $0.product == .app }.sorted { $0.name < $1.name }
+        guard !apps.isEmpty else {
             warnings.append("no app target found; root xcodeproj target list is empty")
             return """
             load(
@@ -126,7 +146,14 @@ struct BazelGenerator {
             """
         }
 
-        let appLabel = try productLabel(for: app).description
+        let topLevelTargets = try apps.map { app in
+            """
+                    top_level_target(
+                        "\(try productLabel(for: app).description)",
+                        target_environments = ["simulator"],
+                    )
+            """
+        }.joined(separator: ",\n")
         return """
         load(
             "@rules_xcodeproj//xcodeproj:defs.bzl",
@@ -139,10 +166,7 @@ struct BazelGenerator {
             project_name = "\(sanitizedModuleName(graph.name))",
             scheme_autogeneration_mode = "all",
             top_level_targets = [
-                top_level_target(
-                    "\(appLabel)",
-                    target_environments = ["simulator"],
-                ),
+        \(topLevelTargets),
             ],
         )
         """
@@ -194,10 +218,16 @@ struct BazelGenerator {
                 iosRules.insert("ios_application")
             case .appExtension:
                 iosRules.insert("ios_extension")
+            case .extensionKitExtension:
+                iosRules.insert("ios_extension")
             case .framework:
                 iosRules.insert("ios_framework")
+            case .messagesExtension:
+                iosRules.insert("ios_imessage_extension")
             case .staticFramework:
                 iosRules.insert("ios_static_framework")
+            case .stickerPackExtension:
+                iosRules.insert("ios_sticker_pack_extension")
             case .unitTests:
                 iosRules.insert("ios_unit_test")
             case .uiTests:
@@ -365,12 +395,31 @@ struct BazelGenerator {
         switch target.product {
         case .app:
             return try renderApp(target, packagePath: packagePath)
-        case .appExtension:
-            return try renderExtension(target, packagePath: packagePath)
+        case .appExtension, .extensionKitExtension:
+            let original = try renderExtension(target, packagePath: packagePath)
+            return try renderWithAppSpecificExtensionBundles(
+                target,
+                packagePath: packagePath,
+                original: original
+            )
         case .framework:
             return try renderFramework(target, packagePath: packagePath)
+        case .messagesExtension:
+            let original = try renderMessagesExtension(target, packagePath: packagePath)
+            return try renderWithAppSpecificExtensionBundles(
+                target,
+                packagePath: packagePath,
+                original: original
+            )
         case .staticFramework:
             return try renderStaticFramework(target, packagePath: packagePath)
+        case .stickerPackExtension:
+            let original = try renderStickerPackExtension(target, packagePath: packagePath)
+            return try renderWithAppSpecificExtensionBundles(
+                target,
+                packagePath: packagePath,
+                original: original
+            )
         case .staticLibrary, .dynamicLibrary:
             return try renderLibrary(target, packagePath: packagePath)
         case .bundle:
@@ -405,21 +454,174 @@ struct BazelGenerator {
     }
 
     private mutating func renderExtension(_ target: TuistTarget, packagePath: String) throws -> String {
+        try renderExtensionRule(
+            target,
+            packagePath: packagePath,
+            ruleName: "ios_extension",
+            extraAttributes: target.product == .extensionKitExtension ? "    extensionkit_extension = True,\n" : ""
+        )
+    }
+
+    private mutating func renderMessagesExtension(_ target: TuistTarget, packagePath: String) throws -> String {
+        try renderExtensionRule(target, packagePath: packagePath, ruleName: "ios_imessage_extension")
+    }
+
+    private mutating func renderExtensionRule(
+        _ target: TuistTarget,
+        packagePath: String,
+        ruleName: String,
+        extraAttributes: String = ""
+    ) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
         return [
             try renderResourceGroupIfNeeded(target, packagePath: packagePath),
             try renderSwiftLibrary(target, packagePath: packagePath, name: libraryName(for: target), testonly: false, manual: true, resolved: deps),
-            """
-            ios_extension(
-                name = "\(target.name)",
-                bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
-                families = ["iphone", "ipad"],
-            \(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
-                deps = [":\(libraryName(for: target))"],
-            \(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
-            """
+            renderExtensionBundleRule(
+                target,
+                packagePath: packagePath,
+                deps: deps,
+                ruleName: ruleName,
+                name: target.name,
+                bundleId: target.bundleId ?? defaultBundleId(for: target),
+                infoPlistTarget: target,
+                extraAttributes: extraAttributes
+            ),
         ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
             .replacingOccurrences(of: ")\n \n", with: ")\n")
+    }
+
+    private mutating func renderExtensionBundleRule(
+        _ target: TuistTarget,
+        packagePath: String,
+        deps: ResolvedDependencies,
+        ruleName: String,
+        name: String,
+        bundleId: String,
+        infoPlistTarget: TuistTarget,
+        extraAttributes: String = ""
+    ) -> String {
+        let executableName = name == target.productName ? "" : "    executable_name = \"\(target.productName)\",\n"
+        return """
+        \(ruleName)(
+            name = "\(name)",
+            bundle_id = "\(bundleId)",
+        \(executableName)\(extraAttributes)    families = ["iphone", "ipad"],
+        \(infoplistsAttribute(infoPlistTarget, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
+            deps = [":\(libraryName(for: target))"],
+        \(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
+        """
+    }
+
+    private mutating func renderWithAppSpecificExtensionBundles(
+        _ target: TuistTarget,
+        packagePath: String,
+        original: String
+    ) throws -> String {
+        let identity = targetIdentity(target)
+        let consumers = appSpecificExtensionConsumers[identity, default: []].sorted { $0.wrapperName < $1.wrapperName }
+        guard !consumers.isEmpty else {
+            return original
+        }
+
+        let wrappers = try consumers.map { consumer in
+            try renderAppSpecificExtensionBundle(target, packagePath: packagePath, consumer: consumer)
+        }
+        return ([original] + wrappers).joined(separator: "\n\n")
+    }
+
+    private mutating func renderAppSpecificExtensionBundle(
+        _ target: TuistTarget,
+        packagePath: String,
+        consumer: AppSpecificExtensionConsumer
+    ) throws -> String {
+        let wrapper = appSpecificExtensionTarget(from: target, consumer: consumer)
+        switch target.product {
+        case .appExtension, .extensionKitExtension:
+            let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+            return renderExtensionBundleRule(
+                target,
+                packagePath: packagePath,
+                deps: deps,
+                ruleName: "ios_extension",
+                name: consumer.wrapperName,
+                bundleId: consumer.bundleId,
+                infoPlistTarget: wrapper,
+                extraAttributes: target.product == .extensionKitExtension ? "    extensionkit_extension = True,\n" : ""
+            )
+        case .messagesExtension:
+            let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+            return renderExtensionBundleRule(
+                target,
+                packagePath: packagePath,
+                deps: deps,
+                ruleName: "ios_imessage_extension",
+                name: consumer.wrapperName,
+                bundleId: consumer.bundleId,
+                infoPlistTarget: wrapper
+            )
+        case .stickerPackExtension:
+            return try renderStickerPackExtensionBundle(
+                target,
+                packagePath: packagePath,
+                name: consumer.wrapperName,
+                bundleId: consumer.bundleId,
+                infoPlistTarget: wrapper
+            )
+        case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .bundle, .unitTests, .uiTests, .unsupported:
+            return ""
+        }
+    }
+
+    private func appSpecificExtensionTarget(
+        from target: TuistTarget,
+        consumer: AppSpecificExtensionConsumer
+    ) -> TuistTarget {
+        TuistTarget(
+            name: consumer.wrapperName,
+            product: target.product,
+            bundleId: consumer.bundleId,
+            productName: target.productName,
+            projectPath: target.projectPath,
+            infoPlistPath: target.infoPlistPath,
+            infoPlistEntries: target.infoPlistEntries,
+            sources: target.sources,
+            headers: target.headers,
+            resources: target.resources,
+            dependencies: target.dependencies
+        )
+    }
+
+    private mutating func renderStickerPackExtensionBundle(
+        _ target: TuistTarget,
+        packagePath: String,
+        name: String,
+        bundleId: String,
+        infoPlistTarget: TuistTarget
+    ) throws -> String {
+        let resources = try resourceExpressions(for: target, packagePath: packagePath)
+        let resourceExpressions = resources.resources + resources.structuredResources
+        return [
+            try renderBundleImportsIfNeeded(target, packagePath: packagePath),
+            """
+            ios_sticker_pack_extension(
+                name = "\(name)",
+                bundle_id = "\(bundleId)",
+                families = ["iphone", "ipad"],
+            \(infoplistsAttribute(infoPlistTarget, packagePath: packagePath, indent: 4))    minimum_os_version = "17.0",
+                resources = \(Starlark.exprList(resourceExpressions, indent: 4)),
+            )
+            """
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
+    }
+
+    private mutating func renderStickerPackExtension(_ target: TuistTarget, packagePath: String) throws -> String {
+        try renderStickerPackExtensionBundle(
+            target,
+            packagePath: packagePath,
+            name: target.name,
+            bundleId: target.bundleId ?? defaultBundleId(for: target),
+            infoPlistTarget: target
+        )
     }
 
     private mutating func renderFramework(_ target: TuistTarget, packagePath: String) throws -> String {
@@ -467,7 +669,7 @@ struct BazelGenerator {
             """
             ios_static_framework(
                 name = "\(target.name)",
-            \(extensionSafeAttribute(target, indent: 4))    minimum_os_version = "17.0",
+                minimum_os_version = "17.0",
             \(optionalLabelListAttribute("avoid_deps", deps.codeDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("deps", frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         )
@@ -730,9 +932,9 @@ struct BazelGenerator {
 
     private func libraryName(for target: TuistTarget) -> String {
         switch target.product {
-        case .app, .appExtension, .framework, .staticFramework, .unitTests, .uiTests:
+        case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .unitTests, .uiTests:
             "\(target.name)Lib"
-        case .staticLibrary, .dynamicLibrary, .bundle, .unsupported:
+        case .staticLibrary, .dynamicLibrary, .bundle, .stickerPackExtension, .unsupported:
             target.name
         }
     }
@@ -780,17 +982,7 @@ struct BazelGenerator {
             return originalRelative
         }
 
-        let replacements = [
-            "$(CURRENT_PROJECT_VERSION)": "1",
-            "$(MARKETING_VERSION)": "1.0",
-            "$(DEVELOPMENT_LANGUAGE)": "en",
-            "$(EXECUTABLE_NAME)": target.productName,
-            "$(PRODUCT_BUNDLE_IDENTIFIER)": target.bundleId ?? defaultBundleId(for: target),
-            "$(PRODUCT_NAME)": target.productName,
-            "$(TARGET_NAME)": target.name,
-        ]
-
-        let sanitized = replacements.reduce(original) { content, replacement in
+        let sanitized = substitutionMap(for: target).reduce(original) { content, replacement in
             content.replacingOccurrences(of: replacement.key, with: replacement.value)
         }
         guard sanitized != original else {
@@ -805,47 +997,92 @@ struct BazelGenerator {
     }
 
     private mutating func generatedDefaultInfoPlistRelativePath(for target: TuistTarget, packagePath: String) -> String? {
-        guard target.product == .app || target.product == .appExtension || target.product == .framework else {
+        guard supportsGeneratedDefaultInfoPlist(target.product) else {
             return nil
         }
 
         let generatedRelative = ".bazel/InfoPlists/\(target.name)-Info.plist"
         let generatedOutputPath = packagePath.isEmpty ? generatedRelative : "\(packagePath)/\(generatedRelative)"
         if generatedFiles[generatedOutputPath] == nil {
-            let packageType: String
-            switch target.product {
-            case .app:
-                packageType = "APPL"
-            case .framework:
-                packageType = "FMWK"
-            default:
-                packageType = "XPC!"
+            let dictionary = defaultInfoPlistDictionary(for: target)
+            guard let data = try? PropertyListSerialization.data(fromPropertyList: dictionary, format: .xml, options: 0),
+                  let content = String(data: data, encoding: .utf8) else {
+                warnings.append("failed to generate default Info.plist for \(target.name)")
+                return nil
             }
-            generatedFiles[generatedOutputPath] = """
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-            <dict>
-                <key>CFBundleDevelopmentRegion</key>
-                <string>en</string>
-                <key>CFBundleExecutable</key>
-                <string>\(target.productName)</string>
-                <key>CFBundleIdentifier</key>
-                <string>\(target.bundleId ?? defaultBundleId(for: target))</string>
-                <key>CFBundleName</key>
-                <string>\(target.productName)</string>
-                <key>CFBundlePackageType</key>
-                <string>\(packageType)</string>
-                <key>CFBundleShortVersionString</key>
-                <string>1.0</string>
-                <key>CFBundleVersion</key>
-                <string>1</string>
-            </dict>
-            </plist>
-            """
+            generatedFiles[generatedOutputPath] = content
             warnings.append("generated default Info.plist for \(target.name) at \(generatedOutputPath)")
         }
         return generatedRelative
+    }
+
+    private func supportsGeneratedDefaultInfoPlist(_ product: ProductType) -> Bool {
+        switch product {
+        case .app, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .stickerPackExtension:
+            true
+        case .staticFramework, .staticLibrary, .dynamicLibrary, .bundle, .unitTests, .uiTests, .unsupported:
+            false
+        }
+    }
+
+    private func defaultInfoPlistDictionary(for target: TuistTarget) -> [String: Any] {
+        var dictionary: [String: Any] = [
+            "CFBundleDevelopmentRegion": "en",
+            "CFBundleExecutable": target.productName,
+            "CFBundleIdentifier": target.bundleId ?? defaultBundleId(for: target),
+            "CFBundleName": target.productName,
+            "CFBundlePackageType": packageType(for: target.product),
+            "CFBundleShortVersionString": "1.0",
+            "CFBundleVersion": "1",
+        ]
+        let substitutions = substitutionMap(for: target)
+        for (key, value) in target.infoPlistEntries {
+            dictionary[key] = propertyListObject(for: value, substitutions: substitutions)
+        }
+        return dictionary
+    }
+
+    private func packageType(for product: ProductType) -> String {
+        switch product {
+        case .app:
+            "APPL"
+        case .framework:
+            "FMWK"
+        default:
+            "XPC!"
+        }
+    }
+
+    private func propertyListObject(for value: PlistValue, substitutions: [String: String]) -> Any {
+        switch value {
+        case let .string(string):
+            substitutions.reduce(string) { content, replacement in
+                content.replacingOccurrences(of: replacement.key, with: replacement.value)
+            }
+        case let .bool(bool):
+            bool
+        case let .number(number):
+            number.rounded() == number ? Int(number) : number
+        case let .array(values):
+            values.map { propertyListObject(for: $0, substitutions: substitutions) }
+        case let .dictionary(values):
+            values.reduce(into: [String: Any]()) { result, element in
+                result[element.key] = propertyListObject(for: element.value, substitutions: substitutions)
+            }
+        }
+    }
+
+    private func substitutionMap(for target: TuistTarget) -> [String: String] {
+        [
+            "$(CURRENT_PROJECT_VERSION)": "1",
+            "$(MARKETING_VERSION)": "1.0",
+            "$(DEVELOPMENT_LANGUAGE)": "en",
+            "$(EXECUTABLE_NAME)": target.productName,
+            "$(PRODUCT_BUNDLE_IDENTIFIER)": target.bundleId ?? defaultBundleId(for: target),
+            "$(PRODUCT_MODULE_NAME)": sanitizedModuleName(target.productName),
+            "$(PRODUCT_NAME)": target.productName,
+            "$(TARGET_NAME)": target.name,
+        ]
     }
 
     private mutating func generatedResourceAccessorSource(for target: TuistTarget, packagePath: String) throws -> String? {
@@ -885,19 +1122,24 @@ struct BazelGenerator {
         var testHost: BazelLabel?
     }
 
+    private struct AppSpecificExtensionConsumer {
+        let wrapperName: String
+        let bundleId: String
+    }
+
     private mutating func resolvedDependencies(for target: TuistTarget, packagePath: String) throws -> ResolvedDependencies {
         var result = ResolvedDependencies()
 
         for dependency in target.dependencies {
             if let dependencyTarget = resolveTargetDependency(dependency) {
                 switch dependencyTarget.product {
-                case .framework where target.product == .app || target.product == .appExtension:
+                case .framework where target.product == .app || isExtensionProduct(target.product):
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
                     }
                     result.frameworkDeps.append(try productLabel(for: dependencyTarget))
-                case .appExtension where target.product == .app:
-                    result.extensionDeps.append(try productLabel(for: dependencyTarget))
+                case _ where target.product == .app && isExtensionProduct(dependencyTarget.product):
+                    result.extensionDeps.append(try embeddedExtensionLabel(for: dependencyTarget, app: target))
                 case .bundle:
                     if let resource = try resourceLabel(for: dependencyTarget) {
                         result.resourceDeps.append(resource)
@@ -954,6 +1196,40 @@ struct BazelGenerator {
         result.weakSdkFrameworks = Array(Set(result.weakSdkFrameworks)).sorted()
         result.sdkDylibs = Array(Set(result.sdkDylibs)).sorted()
         return result
+    }
+
+    private func isExtensionProduct(_ product: ProductType) -> Bool {
+        switch product {
+        case .appExtension, .extensionKitExtension, .messagesExtension, .stickerPackExtension:
+            true
+        case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .bundle, .unitTests, .uiTests, .unsupported:
+            false
+        }
+    }
+
+    private func embeddedExtensionLabel(for extensionTarget: TuistTarget, app: TuistTarget) throws -> BazelLabel {
+        if requiresAppSpecificExtensionBundle(extensionTarget, app: app) {
+            return BazelLabel(
+                package: try paths.packagePath(for: extensionTarget.projectPath),
+                name: appSpecificExtensionName(for: extensionTarget, app: app)
+            )
+        }
+        return try productLabel(for: extensionTarget)
+    }
+
+    private func requiresAppSpecificExtensionBundle(_ extensionTarget: TuistTarget, app: TuistTarget) -> Bool {
+        let appBundleId = app.bundleId ?? defaultBundleId(for: app)
+        let extensionBundleId = extensionTarget.bundleId ?? defaultBundleId(for: extensionTarget)
+        return !extensionBundleId.hasPrefix("\(appBundleId).")
+    }
+
+    private func appSpecificExtensionName(for extensionTarget: TuistTarget, app: TuistTarget) -> String {
+        "_\(sanitizedModuleName(app.name))_\(sanitizedModuleName(extensionTarget.name))"
+    }
+
+    private func appSpecificExtensionBundleId(for extensionTarget: TuistTarget, app: TuistTarget) -> String {
+        let appBundleId = app.bundleId ?? defaultBundleId(for: app)
+        return "\(appBundleId).\(sanitizedModuleName(extensionTarget.productName))"
     }
 
     private func resolveTargetDependency(_ dependency: TuistDependency) -> TuistTarget? {

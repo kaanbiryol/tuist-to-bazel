@@ -76,6 +76,7 @@ struct TuistGraphParser {
             productName: object["productName"]?.stringValue ?? sanitizedModuleName(name),
             projectPath: projectPath,
             infoPlistPath: parseInfoPlist(object["infoPlist"]),
+            infoPlistEntries: parseInfoPlistEntries(object["infoPlist"]),
             sources: parsePathArray(object["sources"]),
             headers: parseHeaders(object["headers"]),
             resources: parseResources(object["resources"]),
@@ -90,6 +91,58 @@ struct TuistGraphParser {
         }
         if let path = object["generatedFile"]?["path"]?.stringValue {
             return path
+        }
+        return nil
+    }
+
+    private func parseInfoPlistEntries(_ value: JSONValue?) -> [String: PlistValue] {
+        guard let entries = value?["extendingDefault"]?["with"]?.objectValue else {
+            return [:]
+        }
+        return entries.reduce(into: [:]) { result, element in
+            if let parsed = parsePlistValue(element.value) {
+                result[element.key] = parsed
+            }
+        }
+    }
+
+    private func parsePlistValue(_ value: JSONValue?) -> PlistValue? {
+        guard let object = value?.objectValue else {
+            switch value {
+            case let .string(string):
+                return .string(string)
+            case let .bool(bool):
+                return .bool(bool)
+            case let .number(number):
+                return .number(number)
+            case let .array(values):
+                return .array(values.compactMap(parsePlistValue))
+            default:
+                return nil
+            }
+        }
+
+        if let string = object["string"]?["_0"]?.stringValue {
+            return .string(string)
+        }
+        if let bool = object["boolean"]?["_0"], case let .bool(value) = bool {
+            return .bool(value)
+        }
+        if let number = object["integer"]?["_0"], case let .number(value) = number {
+            return .number(value)
+        }
+        if let number = object["real"]?["_0"], case let .number(value) = number {
+            return .number(value)
+        }
+        if let values = object["array"]?["_0"]?.arrayValue {
+            return .array(values.compactMap(parsePlistValue))
+        }
+        if let values = object["dictionary"]?["_0"]?.objectValue {
+            return .dictionary(values.reduce(into: [:]) { result, element in
+                if let parsed = parsePlistValue(element.value) {
+                    result[element.key] = parsed
+                }
+            })
         }
         return nil
     }
