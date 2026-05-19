@@ -342,12 +342,12 @@ struct TuistGraphParser {
     private func parseDependencies(_ value: JSONValue?) -> [TuistDependency] {
         value?.arrayValue?.compactMap { element in
             if let target = element["target"]?.objectValue, let name = target["name"]?.stringValue {
-                return .target(name: name)
+                return .target(name: name, condition: parseDependencyCondition(target["condition"]))
             }
             if let project = element["project"]?.objectValue,
                let target = project["target"]?.stringValue,
                let path = project["path"]?.stringValue {
-                return .project(target: target, path: path)
+                return .project(target: target, path: path, condition: parseDependencyCondition(project["condition"]))
             }
             if let framework = element["framework"]?.objectValue, let path = framework["path"]?.stringValue {
                 return .framework(path: path)
@@ -375,5 +375,18 @@ struct TuistGraphParser {
             }
             return nil
         } ?? []
+    }
+
+    private func parseDependencyCondition(_ value: JSONValue?) -> TuistDependencyCondition? {
+        let platformFilters: [String] = value?["platformFilters"]?.arrayValue?.flatMap { filter -> [String] in
+            guard let object = filter.objectValue else {
+                return []
+            }
+            return Array(object.keys)
+        } ?? []
+        guard !platformFilters.isEmpty else {
+            return nil
+        }
+        return TuistDependencyCondition(platformFilters: orderedUnique(platformFilters))
     }
 }

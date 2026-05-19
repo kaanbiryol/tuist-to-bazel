@@ -152,6 +152,63 @@ final class TuistGraphParserTests: XCTestCase {
         XCTAssertEqual(kind, .plugin)
     }
 
+    func testParsesDependencyPlatformConditions() throws {
+        let json = """
+        {
+          "name": "Fixture",
+          "projects": {
+            "/tmp/App": {
+              "name": "App",
+              "targets": {
+                "App": {
+                  "product": "app",
+                  "dependencies": [
+                    {
+                      "target": {
+                        "name": "Framework",
+                        "condition": {
+                          "platformFilters": [
+                            { "ios": {} },
+                            { "macos": {} }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "project": {
+                        "target": "WatchFramework",
+                        "path": "/tmp/Frameworks",
+                        "condition": {
+                          "platformFilters": [
+                            { "watchos": {} }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let dependencies = try TuistGraphParser().parse(data: Data(json.utf8)).projects[0].targets[0].dependencies
+
+        guard case let .target(name, condition) = dependencies[0] else {
+            return XCTFail("expected target dependency")
+        }
+        XCTAssertEqual(name, "Framework")
+        XCTAssertEqual(condition?.platformFilters, ["ios", "macos"])
+
+        guard case let .project(target, path, condition) = dependencies[1] else {
+            return XCTFail("expected project dependency")
+        }
+        XCTAssertEqual(target, "WatchFramework")
+        XCTAssertEqual(path, "/tmp/Frameworks")
+        XCTAssertEqual(condition?.platformFilters, ["watchos"])
+    }
+
     func testParsesSettingsBackedInfoPlistEntries() throws {
         let json = """
         {

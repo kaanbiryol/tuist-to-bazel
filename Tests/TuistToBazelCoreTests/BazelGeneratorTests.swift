@@ -1315,6 +1315,102 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rootBuild.contains("minimum_os_version = \"14.0\""))
     }
 
+    func testFiltersMultiplatformDependenciesForSelectedPlatform() throws {
+        let root = URL(fileURLWithPath: "/tmp/MultiplatformFixture")
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            destinations: ["appleWatch", "mac", "iPhone", "iPad"],
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("App/Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .target(
+                                    name: "iOSFramework",
+                                    condition: TuistDependencyCondition(platformFilters: ["ios"])
+                                ),
+                                .target(
+                                    name: "WatchFramework",
+                                    condition: TuistDependencyCondition(platformFilters: ["watchos"])
+                                ),
+                                .target(
+                                    name: "MacStaticFramework",
+                                    condition: TuistDependencyCondition(platformFilters: ["macos"])
+                                ),
+                            ]
+                        ),
+                        TuistTarget(
+                            name: "iOSFramework",
+                            product: .framework,
+                            destinations: ["iPhone", "iPad"],
+                            bundleId: "dev.tuist.iOSFramework",
+                            productName: "iOSFramework",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("iOSFramework/Sources/Framework.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "WatchFramework",
+                            product: .framework,
+                            destinations: ["appleWatch"],
+                            bundleId: "dev.tuist.WatchFramework",
+                            productName: "WatchFramework",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("WatchFramework/Sources/Framework.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                        TuistTarget(
+                            name: "MacStaticFramework",
+                            product: .staticFramework,
+                            destinations: ["mac"],
+                            bundleId: "dev.tuist.MacStaticFramework",
+                            productName: "MacStaticFramework",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            sources: [root.appendingPathComponent("MacStaticFramework/Sources/Framework.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
+        XCTAssertTrue(rootBuild.contains("ios_application(\n    name = \"App\""))
+        XCTAssertFalse(rootBuild.contains("watchos_application(\n    name = \"App\""))
+        XCTAssertTrue(rootBuild.contains("macos_static_framework(\n    name = \"MacStaticFramework\""))
+
+        let appLib = try XCTUnwrap(firstRule(named: "AppLib", in: rootBuild))
+        XCTAssertTrue(appLib.contains("\":iOSFrameworkLib\""))
+        XCTAssertFalse(appLib.contains("WatchFrameworkLib"))
+        XCTAssertFalse(appLib.contains("MacStaticFrameworkLib"))
+
+        let macStaticFramework = try XCTUnwrap(
+            rootBuild.components(separatedBy: "\n\n").first { block in
+                block.hasPrefix("macos_static_framework(") && block.contains("name = \"MacStaticFramework\"")
+            }
+        )
+        XCTAssertTrue(macStaticFramework.contains("minimum_os_version = \"14.0\""))
+    }
+
     func testGeneratesWatchApplicationEmbeddingRules() throws {
         let root = URL(fileURLWithPath: "/tmp/WatchAppFixture")
         let graph = TuistGraph(

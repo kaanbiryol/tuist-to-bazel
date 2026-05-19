@@ -164,14 +164,18 @@ struct TuistResource: Hashable {
 }
 
 enum TuistDependency {
-    case target(name: String)
-    case project(target: String, path: String)
+    case target(name: String, condition: TuistDependencyCondition? = nil)
+    case project(target: String, path: String, condition: TuistDependencyCondition? = nil)
     case framework(path: String)
     case xcframework(path: String)
     case library(path: String, publicHeaders: String?, swiftModuleMap: String?)
     case package(product: String, kind: PackageDependencyKind = .runtime)
     case sdk(name: String, status: String?)
     case xctest
+}
+
+struct TuistDependencyCondition: Equatable {
+    let platformFilters: [String]
 }
 
 enum PackageDependencyKind: Equatable {

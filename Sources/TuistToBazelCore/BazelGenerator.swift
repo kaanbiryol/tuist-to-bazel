@@ -615,7 +615,18 @@ struct BazelGenerator {
             case .messagesExtension:
                 iosRules.insert("ios_imessage_extension")
             case .staticFramework:
-                iosRules.insert("ios_static_framework")
+                switch platform(for: target) {
+                case .ios:
+                    iosRules.insert("ios_static_framework")
+                case .macOS:
+                    macOSRules.insert("macos_static_framework")
+                case .tvOS:
+                    tvOSRules.insert("tvos_static_framework")
+                case .watchOS:
+                    watchOSRules.insert("watchos_static_framework")
+                case .visionOS:
+                    visionOSRules.insert("visionos_static_framework")
+                }
             case .stickerPackExtension:
                 iosRules.insert("ios_sticker_pack_extension")
             case .tvTopShelfExtension:
@@ -1372,12 +1383,13 @@ struct BazelGenerator {
 
     private mutating func renderStaticFramework(_ target: TuistTarget, packagePath: String) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
+        let platform = platform(for: target)
         var parts: [String] = []
         if let resources = try renderResourceGroupIfNeeded(target, packagePath: packagePath) {
             parts.append(resources)
         }
         if !hasSwiftLibrary(for: target) {
-            warnings.append("static framework \(target.name) has no sources; generated its resources but skipped an ios_static_framework wrapper")
+            warnings.append("static framework \(target.name) has no sources; generated its resources but skipped a static framework wrapper")
             if parts.isEmpty {
                 parts.append("# \(target.name) skipped: source-less static framework")
             }
@@ -1388,9 +1400,9 @@ struct BazelGenerator {
         let frameworkDeps = [BazelLabel(package: packagePath, name: libraryName(for: target))]
         parts.append(
             """
-            ios_static_framework(
+            \(staticFrameworkRuleName(for: platform))(
                 name = "\(target.name)",
-                minimum_os_version = "17.0",
+                minimum_os_version = "\(minimumOSVersion(for: platform))",
             \(optionalLabelListAttribute("avoid_deps", deps.codeDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("deps", frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
             """
         )
@@ -2200,6 +2212,9 @@ struct BazelGenerator {
         let targetPlatform = platform(for: target)
 
         for dependency in target.dependencies {
+            guard dependencyIsActive(dependency, for: targetPlatform) else {
+                continue
+            }
             if let dependencyTarget = resolveTargetDependency(dependency) {
                 switch dependencyTarget.product {
                 case .macro:
@@ -2424,24 +2439,57 @@ struct BazelGenerator {
         case tvOS
         case watchOS
         case visionOS
+
+        var dependencyConditionName: String {
+            switch self {
+            case .ios:
+                "ios"
+            case .macOS:
+                "macos"
+            case .tvOS:
+                "tvos"
+            case .watchOS:
+                "watchos"
+            case .visionOS:
+                "visionos"
+            }
+        }
     }
 
     private func platform(for target: TuistTarget) -> ApplePlatform {
         let destinations = Set(target.destinations)
+        let iosDestinations: Set<String> = ["iPhone", "iPad", "macWithiPadDesign"]
+        if !destinations.isDisjoint(with: iosDestinations) {
+            return .ios
+        }
+        if destinations.contains("appleTv") {
+            return .tvOS
+        }
         if destinations.contains("appleWatch") {
             return .watchOS
         }
         if destinations.contains("appleVision") {
             return .visionOS
         }
-        if destinations.contains("appleTv") {
-            return .tvOS
-        }
-        let iosDestinations: Set<String> = ["iPhone", "iPad", "macWithiPadDesign"]
         if destinations.contains("mac"), destinations.isDisjoint(with: iosDestinations) {
             return .macOS
         }
         return .ios
+    }
+
+    private func staticFrameworkRuleName(for platform: ApplePlatform) -> String {
+        switch platform {
+        case .ios:
+            "ios_static_framework"
+        case .macOS:
+            "macos_static_framework"
+        case .tvOS:
+            "tvos_static_framework"
+        case .watchOS:
+            "watchos_static_framework"
+        case .visionOS:
+            "visionos_static_framework"
+        }
     }
 
     private func minimumOSVersion(for platform: ApplePlatform) -> String {
@@ -2484,11 +2532,29 @@ struct BazelGenerator {
 
     private func resolveTargetDependency(_ dependency: TuistDependency) -> TuistTarget? {
         switch dependency {
-        case let .target(name):
+        case let .target(name, _):
             targetsByName[name]
-        case let .project(target, path):
+        case let .project(target, path, _):
             targetsByPathAndName[indexKey(path: path, name: target)] ?? targetsByName[target]
         case .framework, .xcframework, .library, .package(_, _), .sdk, .xctest:
+            nil
+        }
+    }
+
+    private func dependencyIsActive(_ dependency: TuistDependency, for platform: ApplePlatform) -> Bool {
+        guard let condition = dependencyCondition(dependency) else {
+            return true
+        }
+        return condition.platformFilters.contains(platform.dependencyConditionName)
+    }
+
+    private func dependencyCondition(_ dependency: TuistDependency) -> TuistDependencyCondition? {
+        switch dependency {
+        case let .target(_, condition):
+            condition
+        case let .project(_, _, condition):
+            condition
+        case .framework, .xcframework, .library, .package, .sdk, .xctest:
             nil
         }
     }
