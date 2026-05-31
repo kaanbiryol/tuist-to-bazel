@@ -1,0 +1,38 @@
+tuist-to-bazel third-party notices
+
+This project includes a selected fixture corpus copied from the Tuist
+repository:
+
+  Repository: https://github.com/tuist/tuist
+  Commit: 2be1eb0076143ebc60e86fff7b5c334c0808baa3
+  Source path: examples/xcode
+  Local path: Fixtures/Tuist
+
+The copied fixture files retain their upstream MIT license. Tuist's license at
+the pinned commit states:
+
+MIT License
+
+Copyright (c) from 2018 Tuist GmbH
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Some copied fixtures include their own asset or font notices next to the
+fixture files, such as the Poppins OFL notice at
+Fixtures/Tuist/generated_ios_app_with_static_frameworks_with_resources/Modules/A/Resources/Fonts/LICENSE-OFL.txt.

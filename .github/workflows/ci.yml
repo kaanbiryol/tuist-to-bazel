@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  swift:
+    name: swift test
+    runs-on: macos-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Swift tests
+        run: swift test
+
+  bazel-showcase:
+    name: bazel showcase
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      USE_BAZEL_VERSION: 9.1.0
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Bazelisk
+        run: brew install bazelisk
+
+      - name: Query showcase
+        working-directory: Examples/generated_ios_app_with_framework_and_resources
+        run: bazelisk query //...
+
+      - name: Build showcase
+        working-directory: Examples/generated_ios_app_with_framework_and_resources
+        run: bazelisk build //...
