@@ -44,11 +44,11 @@ extension BazelGenerator {
     }
 
     func indexKey(path: String, name: String) -> String {
-        "\(URL(fileURLWithPath: path).standardizedFileURL.path)#\(name)"
+        BazelDependencyResolver.indexKey(path: path, name: name)
     }
 
     func targetIdentity(_ target: TuistTarget) -> String {
-        indexKey(path: target.projectPath, name: target.name)
+        BazelDependencyResolver.targetIdentity(target)
     }
 
     mutating func indexLocalSwiftPackages() throws {

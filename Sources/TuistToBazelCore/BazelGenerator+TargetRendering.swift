@@ -517,22 +517,6 @@ extension BazelGenerator {
         return "\(String(repeating: " ", count: indent))bundle_name = \"\(target.productName)\",\n"
     }
 
-    func familiesAttribute(for platform: ApplePlatform, indent: Int) -> String {
-        let prefix = String(repeating: " ", count: indent)
-        switch platform {
-        case .ios:
-            return "\(prefix)families = [\"iphone\", \"ipad\"],\n"
-        case .tvOS:
-            return "\(prefix)families = [\"tv\"],\n"
-        case .watchOS:
-            return "\(prefix)families = [\"watch\"],\n"
-        case .visionOS:
-            return "\(prefix)families = [\"vision\"],\n"
-        case .macOS:
-            return ""
-        }
-    }
-
     mutating func renderStaticFramework(_ target: TuistTarget, packagePath: String) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
         let platform = platform(for: target)
@@ -704,29 +688,6 @@ extension BazelGenerator {
                 name = "\(testRunnerName(for: platform))",
             )
             """
-        }
-    }
-
-    func testRunnerName(for platform: ApplePlatform) -> String {
-        "_\(testRunnerPlatformName(for: platform))_test_runner"
-    }
-
-    func testRunnerRuleName(for platform: ApplePlatform) -> String {
-        "\(testRunnerPlatformName(for: platform))_test_runner"
-    }
-
-    func testRunnerPlatformName(for platform: ApplePlatform) -> String {
-        switch platform {
-        case .ios:
-            "ios"
-        case .macOS:
-            "macos"
-        case .tvOS:
-            "tvos"
-        case .watchOS:
-            "watchos"
-        case .visionOS:
-            "visionos"
         }
     }
 
