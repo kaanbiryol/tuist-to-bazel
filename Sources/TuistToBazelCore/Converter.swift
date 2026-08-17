@@ -10,18 +10,29 @@ public struct Converter {
         var generator = BazelGenerator(graph: graph, paths: paths)
         let rendered = try generator.render()
 
-        var written: [URL] = []
-        for relativePath in rendered.files.keys.sorted() {
-            let outputURL = input.outputPath.appendingPathComponent(relativePath)
-            if FileManager.default.fileExists(atPath: outputURL.path), !input.force {
-                throw ConversionError.outputExists(outputURL)
+        let plannedFiles = rendered.files
+            .map { relativePath, contents in
+                (
+                    relativePath: relativePath,
+                    contents: contents,
+                    outputURL: input.outputPath.appendingPathComponent(relativePath)
+                )
             }
+            .sorted { $0.relativePath < $1.relativePath }
+
+        if !input.force,
+           let conflict = plannedFiles.first(where: { FileManager.default.fileExists(atPath: $0.outputURL.path) }) {
+            throw ConversionError.outputExists(conflict.outputURL)
+        }
+
+        var written: [URL] = []
+        for file in plannedFiles {
             try FileManager.default.createDirectory(
-                at: outputURL.deletingLastPathComponent(),
+                at: file.outputURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try rendered.files[relativePath]?.write(to: outputURL, atomically: true, encoding: .utf8)
-            written.append(outputURL)
+            try file.contents.write(to: file.outputURL, atomically: true, encoding: .utf8)
+            written.append(file.outputURL)
         }
 
         return ConversionResult(writtenFiles: written, warnings: rendered.warnings)
