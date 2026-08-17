@@ -48,6 +48,43 @@ Fixture directories have separate roles:
 
 The main example is checked in at `Examples/generated_ios_app_with_framework_and_resources`. It is sourced from Tuist's `examples/xcode/generated_ios_app_with_framework_and_resources` fixture at the manifest commit, then converted into a Bazel-compatible project.
 
+### Choosing a fixture
+
+For common dependency and platform questions, start with these fixtures:
+
+| Scenario | Recommended fixture | What it covers |
+|---|---|---|
+| Swift packages | `generated_app_with_local_spm_module_with_remote_dependencies` | Local package products with transitive remote dependencies |
+| Binary dependencies | `generated_ios_app_with_xcframeworks` | Dynamic and static XCFrameworks, static libraries, and linker settings |
+| Multiple platforms | `generated_multiplatform_app` | iOS, macOS, watchOS, and platform-conditional dependencies |
+
+The broader capability map is:
+
+| Capability | Representative fixtures |
+|---|---|
+| Apps, frameworks, extensions, and unit tests | `generated_app_with_framework_and_tests`, `generated_ios_app_with_tests` |
+| Resources, bundles, localization, and string catalogs | `generated_ios_app_with_framework_and_resources`, `generated_ios_app_with_static_framework_with_xcstrings` |
+| Static frameworks, libraries, and binary imports | `generated_ios_app_with_static_frameworks_with_resources`, `generated_ios_app_with_static_libraries`, `generated_ios_app_with_xcframeworks` |
+| SDKs, weak linking, headers, and mixed-language targets | `generated_ios_app_with_sdk`, `generated_ios_app_with_headers` |
+| Local, remote, and binary Swift packages | `generated_ios_app_with_local_swift_package`, `generated_ios_app_with_remote_swift_package`, `generated_ios_app_with_local_binary_swift_package` |
+| App Clips and extension products | `generated_ios_app_with_appclip`, `generated_ios_app_with_extensions` |
+| Core Data and buildable folders | `generated_ios_app_with_coredata`, `generated_ios_app_with_framework_buildable_folders_and_xcassets` |
+| watchOS, tvOS, and visionOS products | `generated_ios_app_with_watch_application`, `generated_tvos_app_with_extensions`, `generated_tvos_app_with_uitest`, `generated_visionos_app` |
+| Multiplatform conditional dependencies | `generated_multiplatform_app` |
+
+`Fixtures/manifest.json` contains the complete fixture list, feature tags, support status, expected diagnostics, and verification commands.
+
+### Verifying fixtures
+
+Build the converter once, then pass any supported fixture name to the verifier:
+
+```bash
+swift build -c release
+scripts/verify-tuist-fixtures.sh generated_ios_app_with_xcframeworks
+```
+
+The verifier copies the fixture to a temporary directory and runs its manifest-defined Tuist graph, conversion, Bazel query, build, and any configured test commands without modifying the checked-in fixture. For a faster build-only pass, omit simulator tests with `--skip-tests`. To verify the entire supported corpus, use `--all-supported`.
+
 Refresh the checked-in Tuist fixtures with:
 
 ```bash
@@ -111,7 +148,7 @@ Dependency generation includes:
 
 Resource handling includes `apple_resource_group`, `apple_bundle_import` for checked-in `.bundle` directories, `apple_core_data_model` for Core Data generated sources, generated `Bundle.module` bridges including for string catalogs, and narrow Tuist-style accessors for assets, strings, string dictionaries, plists, fonts, and Core Data entity classes.
 
-`Fixtures/manifest.json` is the support contract. Entries marked `supported` have executable graph, conversion, query, and build plans; entries marked `planned` document intended coverage without claiming support. Run a supported fixture plan with `scripts/verify-tuist-fixtures.sh <fixture-name>` after building the release executable.
+`Fixtures/manifest.json` is the support contract. Entries marked `supported` have executable graph, conversion, query, and build plans; entries marked `planned` document intended coverage without claiming support.
 
 ## Current Limits
 
