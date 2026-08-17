@@ -81,9 +81,8 @@ swift test
 cd Examples/generated_ios_app_with_framework_and_resources
 bazelisk query //...
 bazelisk build //...
+bazelisk test //App:AppTests
 ```
-
-`bazelisk test //App:AppTests` currently builds the test bundle but the local simulator runner exits with status 15 in this environment immediately after creating the simulator, before XCTest output is produced.
 
 ## Supported Generation
 
