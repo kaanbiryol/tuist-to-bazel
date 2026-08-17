@@ -59,9 +59,7 @@ struct BazelDependencyResolver {
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
                     }
-                    if let resource = try resourceLabel(for: dependencyTarget), dependencyTarget.sources.isEmpty {
-                        result.resourceDeps.append(resource)
-                    }
+                    result.resourceDeps.append(contentsOf: try staticRuntimeResourceLabels(for: dependencyTarget))
                 }
                 continue
             }
@@ -125,6 +123,43 @@ struct BazelDependencyResolver {
         result.weakSdkFrameworks = Array(Set(result.weakSdkFrameworks)).sorted()
         result.sdkDylibs = Array(Set(result.sdkDylibs)).sorted()
         return result
+    }
+
+    func staticRuntimeResourceLabels(for target: TuistTarget) throws -> [BazelLabel] {
+        var visited: Set<String> = []
+        return try staticRuntimeResourceLabels(for: target, visited: &visited)
+    }
+
+    private func staticRuntimeResourceLabels(
+        for target: TuistTarget,
+        visited: inout Set<String>
+    ) throws -> [BazelLabel] {
+        guard visited.insert(Self.targetIdentity(target)).inserted else {
+            return []
+        }
+
+        var labels: [BazelLabel] = []
+        switch target.product {
+        case .bundle:
+            if let resource = try resourceLabel(for: target) {
+                labels.append(resource)
+            }
+        case .staticFramework, .staticLibrary, .dynamicLibrary:
+            if let resource = try resourceLabel(for: target) {
+                labels.append(resource)
+            }
+            let targetPlatform = platform(for: target)
+            for dependency in target.dependencies where dependencyIsActive(dependency, for: targetPlatform) {
+                guard let dependencyTarget = resolveTargetDependency(dependency) else {
+                    continue
+                }
+                labels.append(contentsOf: try staticRuntimeResourceLabels(for: dependencyTarget, visited: &visited))
+            }
+        case .app, .appClip, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension, .macro, .unitTests, .uiTests, .unsupported:
+            break
+        }
+
+        return Array(Set(labels)).sorted()
     }
 
     func importsXCTestUnconditionally(in sourcePaths: [String]) -> Bool {
@@ -368,7 +403,7 @@ struct BazelDependencyResolver {
         if target.product == .bundle {
             return try productLabel(for: target)
         }
-        guard !target.resources.isEmpty else { return nil }
+        guard !target.resources.isEmpty || !target.coreDataModels.isEmpty else { return nil }
         return BazelLabel(package: try paths.packagePath(for: target.projectPath), name: "_\(target.name)Resources")
     }
 

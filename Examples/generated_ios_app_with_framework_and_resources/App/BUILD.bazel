@@ -51,6 +51,9 @@ ios_application(
         "//Framework1:Framework1",
     ],
     resources = [
+        "//StaticFramework2:StaticFramework2Resources",
+        "//StaticFramework3:_StaticFramework3Resources",
+        "//StaticFramework4:_StaticFramework4Resources",
         "//StaticFramework5:_StaticFramework5Resources",
         "//StaticFramework:StaticFrameworkResources",
         ":_AppResources",

@@ -101,6 +101,81 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("\":FrameworkLib\"") == true)
     }
 
+    func testBundlesStaticFrameworkResourceDependenciesIntoApp() throws {
+        let root = URL(fileURLWithPath: "/tmp/StaticFrameworkResourcesFixture")
+        let appPath = root.appendingPathComponent("App")
+        let staticFrameworkPath = root.appendingPathComponent("StaticFramework2")
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: appPath.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: appPath.path,
+                            infoPlistPath: nil,
+                            sources: [appPath.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [
+                                .project(target: "StaticFramework2", path: staticFrameworkPath.path),
+                            ]
+                        ),
+                    ]
+                ),
+                TuistProject(
+                    name: "StaticFramework2",
+                    path: staticFrameworkPath.path,
+                    targets: [
+                        TuistTarget(
+                            name: "StaticFramework2",
+                            product: .staticFramework,
+                            bundleId: "dev.tuist.StaticFramework2",
+                            productName: "StaticFramework2",
+                            projectPath: staticFrameworkPath.path,
+                            infoPlistPath: nil,
+                            sources: [staticFrameworkPath.appendingPathComponent("Sources/StaticFramework2.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "StaticFramework2Resources")]
+                        ),
+                        TuistTarget(
+                            name: "StaticFramework2Resources",
+                            product: .bundle,
+                            bundleId: "dev.tuist.StaticFramework2Resources",
+                            productName: "StaticFramework2Resources",
+                            projectPath: staticFrameworkPath.path,
+                            infoPlistPath: nil,
+                            sources: [],
+                            resources: [
+                                TuistResource(
+                                    path: staticFrameworkPath.appendingPathComponent("Resources/image.png").path,
+                                    kind: .file,
+                                    tags: []
+                                ),
+                            ],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let appBuild = try XCTUnwrap(rendered["App/BUILD.bazel"])
+        XCTAssertTrue(appBuild.contains("resources = ["))
+        XCTAssertTrue(appBuild.contains("\"//StaticFramework2:StaticFramework2Resources\""))
+
+        let staticFrameworkBuild = try XCTUnwrap(rendered["StaticFramework2/BUILD.bazel"])
+        XCTAssertTrue(staticFrameworkBuild.contains("ios_static_framework("))
+        XCTAssertTrue(staticFrameworkBuild.contains("resources = [\n        \":StaticFramework2Resources\","))
+    }
+
     func testGeneratesIOSAppClipAndEmbedsItInHostApp() throws {
         let root = URL(fileURLWithPath: "/tmp/AppClipFixture")
         let graph = TuistGraph(
