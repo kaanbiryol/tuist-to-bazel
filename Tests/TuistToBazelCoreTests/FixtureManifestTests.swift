@@ -57,6 +57,32 @@ final class FixtureManifestTests: XCTestCase {
         }
     }
 
+    func testSupportedFixturesHaveExecutableVerificationPlans() throws {
+        let supportedFixtures = try loadManifest().fixtures.filter { $0.expectedStatus == "supported" }
+
+        XCTAssertFalse(supportedFixtures.isEmpty)
+        for fixture in supportedFixtures {
+            let commands = fixture.verificationCommands ?? []
+            XCTAssertFalse(commands.isEmpty, "Missing verification plan for \(fixture.name)")
+            XCTAssertTrue(
+                commands.contains { $0.hasPrefix("tuist graph ") },
+                "Missing graph generation for \(fixture.name)"
+            )
+            XCTAssertTrue(
+                commands.contains { $0.hasPrefix("tuist-to-bazel convert ") },
+                "Missing conversion for \(fixture.name)"
+            )
+            XCTAssertTrue(
+                commands.contains { $0.hasPrefix("bazelisk query ") },
+                "Missing Bazel query for \(fixture.name)"
+            )
+            XCTAssertTrue(
+                commands.contains { $0.hasPrefix("bazelisk build ") },
+                "Missing Bazel build for \(fixture.name)"
+            )
+        }
+    }
+
     private func loadManifest() throws -> FixtureManifest {
         let url = repoRoot.appendingPathComponent("Fixtures/manifest.json")
         let data = try Data(contentsOf: url)
@@ -93,6 +119,7 @@ private struct Fixture: Decodable {
     let category: String
     let expectedStatus: String
     let expectedDiagnostics: [String]
+    let verificationCommands: [String]?
 }
 
 private struct FixtureShowcase: Decodable {
