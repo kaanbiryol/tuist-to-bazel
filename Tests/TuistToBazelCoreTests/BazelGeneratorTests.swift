@@ -1669,6 +1669,94 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertEqual(accessors.components(separatedBy: "public enum Info").count - 1, 1)
     }
 
+    func testGeneratedExtensionInfoPlistsInheritHostVersions() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-extension-versions-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let appOnePlist = root.appendingPathComponent("App-Info.plist")
+        let appTwoPlist = root.appendingPathComponent("AppWithSharedExtension-Info.plist")
+        try PropertyListSerialization.data(
+            fromPropertyList: [
+                "CFBundleVersion": "7",
+                "CFBundleShortVersionString": "3.2",
+            ],
+            format: .xml,
+            options: 0
+        ).write(to: appOnePlist)
+        try PropertyListSerialization.data(
+            fromPropertyList: [
+                "CFBundleVersion": "9",
+                "CFBundleShortVersionString": "4.1",
+            ],
+            format: .xml,
+            options: 0
+        ).write(to: appTwoPlist)
+
+        let graph = TuistGraph(
+            name: "Fixture",
+            projects: [
+                TuistProject(
+                    name: "App",
+                    path: root.path,
+                    targets: [
+                        TuistTarget(
+                            name: "App",
+                            product: .app,
+                            bundleId: "dev.tuist.App",
+                            productName: "App",
+                            projectPath: root.path,
+                            infoPlistPath: appOnePlist.path,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "SharedExtension")]
+                        ),
+                        TuistTarget(
+                            name: "AppWithSharedExtension",
+                            product: .app,
+                            bundleId: "dev.tuist.App2",
+                            productName: "AppWithSharedExtension",
+                            projectPath: root.path,
+                            infoPlistPath: appTwoPlist.path,
+                            sources: [root.appendingPathComponent("Sources/App.swift").path],
+                            resources: [],
+                            dependencies: [.target(name: "SharedExtension")]
+                        ),
+                        TuistTarget(
+                            name: "SharedExtension",
+                            product: .appExtension,
+                            bundleId: "dev.tuist.App.SharedExtension",
+                            productName: "SharedExtension",
+                            projectPath: root.path,
+                            infoPlistPath: nil,
+                            infoPlistEntries: [
+                                "NSExtension": .dictionary([
+                                    "NSExtensionPointIdentifier": .string("com.apple.usernotifications.service"),
+                                ]),
+                            ],
+                            sources: [root.appendingPathComponent("SharedExtension/Extension.swift").path],
+                            resources: [],
+                            dependencies: []
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        let rendered = try generator.render().files
+
+        let originalExtensionPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/SharedExtension-Info.plist"])
+        XCTAssertTrue(originalExtensionPlist.contains("<key>CFBundleVersion</key>\n\t<string>7</string>"))
+        XCTAssertTrue(originalExtensionPlist.contains("<key>CFBundleShortVersionString</key>\n\t<string>3.2</string>"))
+
+        let wrapperPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/_AppWithSharedExtension_SharedExtension-Info.plist"])
+        XCTAssertTrue(wrapperPlist.contains("<key>CFBundleVersion</key>\n\t<string>9</string>"))
+        XCTAssertTrue(wrapperPlist.contains("<key>CFBundleShortVersionString</key>\n\t<string>4.1</string>"))
+    }
+
     func testGeneratesExtensionProductRulesAndPlists() throws {
         let root = URL(fileURLWithPath: "/tmp/ExtensionFixture")
         let graph = TuistGraph(

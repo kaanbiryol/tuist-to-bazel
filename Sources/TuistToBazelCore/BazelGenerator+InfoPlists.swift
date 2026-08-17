@@ -89,13 +89,43 @@ extension BazelGenerator {
 
     func versionInfoPlistValues(for target: TuistTarget) -> (bundleVersion: Any, shortVersion: Any) {
         let substitutions = substitutionMap(for: target)
+        let fileVersions = infoPlistFileVersionValues(for: target, substitutions: substitutions)
         let bundleVersion = target.infoPlistEntries["CFBundleVersion"].map {
             propertyListObject(for: $0, substitutions: substitutions)
-        } ?? "1.0"
+        } ?? fileVersions.bundleVersion ?? "1.0"
         let shortVersion = target.infoPlistEntries["CFBundleShortVersionString"].map {
             propertyListObject(for: $0, substitutions: substitutions)
-        } ?? "1.0"
+        } ?? fileVersions.shortVersion ?? "1.0"
         return (bundleVersion, shortVersion)
+    }
+
+    func infoPlistFileVersionValues(
+        for target: TuistTarget,
+        substitutions: [String: String]
+    ) -> (bundleVersion: Any?, shortVersion: Any?) {
+        guard let infoPlistPath = target.infoPlistPath,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: infoPlistPath)),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+              let dictionary = plist as? [String: Any] else {
+            return (nil, nil)
+        }
+
+        return (
+            plistVersionValue(dictionary["CFBundleVersion"], substitutions: substitutions),
+            plistVersionValue(dictionary["CFBundleShortVersionString"], substitutions: substitutions)
+        )
+    }
+
+    func plistVersionValue(_ value: Any?, substitutions: [String: String]) -> Any? {
+        guard let value else {
+            return nil
+        }
+        if let string = value as? String {
+            return substitutions.reduce(string) { content, replacement in
+                content.replacingOccurrences(of: replacement.key, with: replacement.value)
+            }
+        }
+        return value
     }
 
     func extensionHostApp(for target: TuistTarget) -> TuistTarget? {
@@ -103,14 +133,29 @@ extension BazelGenerator {
             return nil
         }
         let identity = targetIdentity(target)
-        return graph.projects.flatMap(\.targets)
+        let hostApps = graph.projects.flatMap(\.targets)
             .filter { $0.product == .app || $0.product == .appClip }
+
+        return hostApps
             .sorted { $0.name < $1.name }
             .first { app in
                 app.dependencies.contains { dependency in
                     resolveTargetDependency(dependency).map(targetIdentity) == identity
                 }
+            } ?? hostApps.filter { app in
+                let appBundleId = app.bundleId ?? defaultBundleId(for: app)
+                let extensionBundleId = target.bundleId ?? defaultBundleId(for: target)
+                return extensionBundleId.hasPrefix("\(appBundleId).")
             }
+            .sorted { left, right in
+                let leftBundleId = left.bundleId ?? defaultBundleId(for: left)
+                let rightBundleId = right.bundleId ?? defaultBundleId(for: right)
+                if leftBundleId.count != rightBundleId.count {
+                    return leftBundleId.count > rightBundleId.count
+                }
+                return left.name < right.name
+            }
+            .first
     }
 
     func appClipHostApp(for appClip: TuistTarget) -> TuistTarget? {
