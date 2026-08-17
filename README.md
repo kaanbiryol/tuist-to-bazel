@@ -89,26 +89,41 @@ bazelisk build //...
 
 | Tuist product | Bazel output |
 |---|---|
-| `app` | `swift_library` + `ios_application` |
+| `app` | source library + iOS, tvOS, watchOS, or visionOS application rule |
 | `appClip` / `app_clip` | `swift_library` + `ios_app_clip` |
-| `appExtension` / `app_extension` | `swift_library` + `ios_extension` |
-| `framework` | `swift_library` + `ios_framework` |
-| `staticFramework` / `static_framework` | `swift_library` + `ios_static_framework` |
+| `appExtension` / `app_extension` | source library + iOS, macOS, tvOS, or watchOS extension rule |
+| `extensionKitExtension`, Messages, sticker pack, and TV top shelf extensions | source library + matching platform extension rule |
+| `framework` | source library + platform framework rule |
+| `staticFramework` / `static_framework` | source library + platform static framework rule |
 | `bundle` | `apple_resource_bundle` |
 | `unitTests` / `unit_tests` | `swift_library` + platform unit test rule |
 | `uiTests` / `ui_tests` | `swift_library` + platform UI test rule |
-| `staticLibrary` / `dynamicLibrary` | `swift_library` |
+| `staticLibrary` / `dynamicLibrary` | source library |
+| `macro` | `swift_compiler_plugin` |
+
+Source targets generate `swift_library`, `objc_library`, or `mixed_language_library` as appropriate. Supported Clang inputs include C, C++, Objective-C, Objective-C++, and Tuist header groups.
+
+Dependency generation includes:
+
+- target and project dependencies with platform conditions
+- local and remote Swift package products, including local binary targets and compiler plugins
+- SDK frameworks, weak SDK frameworks, SDK libraries, and XCTest
+- checked-in frameworks, static archives with Swift module maps, and static or dynamic XCFramework imports
 
 Resource handling includes `apple_resource_group`, `apple_bundle_import` for checked-in `.bundle` directories, `apple_core_data_model` for Core Data generated sources, generated `Bundle.module` bridges including for string catalogs, and narrow Tuist-style accessors for assets, strings, string dictionaries, plists, fonts, and Core Data entity classes.
+
+`Fixtures/manifest.json` is the support contract. Entries marked `supported` have executable graph, conversion, query, and build plans; entries marked `planned` document intended coverage without claiming support. Run a supported fixture plan with `scripts/verify-tuist-fixtures.sh <fixture-name>` after building the release executable.
 
 ## Current Limits
 
 - The graph DTOs cover only the fields needed for Bazel generation.
-- External package, SDK, framework, xcframework, and library dependencies are decoded but not fully generated yet.
+- Package products that cannot be mapped unambiguously are reported as warnings. Remote packages require `Package.resolved`.
+- Binary libraries without a Swift module map are reported as warnings rather than generated.
 - ODR resource tags are reported as warnings and are not represented in Bazel output.
 - Resource accessor synthesis is intentionally narrow and aimed at common Tuist-generated symbols.
-- The generated minimum iOS version is currently `17.0`.
-- Objective-C, C, mixed-language targets, build settings, scripts, and custom Tuist build rules are not modeled yet.
+- Minimum OS versions are currently fixed at iOS/tvOS 17.0, macOS 14.0, watchOS 9.0, and visionOS 1.0.
+- Standalone macOS applications, visionOS extensions, command-line tools, and Swift package registries are planned rather than supported.
+- Arbitrary build settings, scripts, and custom Tuist build rules are not modeled.
 
 ## License
 
