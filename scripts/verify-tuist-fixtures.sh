@@ -157,7 +157,7 @@ PY
   work_dir="$(mktemp -d "${TMPDIR:-/tmp}/tuist-to-bazel-${fixture_name}.XXXXXX")"
   work_dirs+=("$work_dir")
   fixture_copy="$work_dir/fixture"
-  mkdir -p "$fixture_copy"
+  mkdir -p "$fixture_copy" "$work_dir/graph"
   cp -R "$source_dir/." "$fixture_copy"
 
   echo "Verifying $fixture_name"
