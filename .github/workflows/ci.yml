@@ -97,7 +97,9 @@ jobs:
 
       - name: Read supported fixtures
         id: fixtures
-        run: echo "value=$(jq -c '[.fixtures[] | select(.expectedStatus == \"supported\") | .name]' Fixtures/manifest.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          fixtures="$(jq -c '[.fixtures[] | select(.expectedStatus == "supported") | .name]' Fixtures/manifest.json)"
+          echo "value=$fixtures" >> "$GITHUB_OUTPUT"
 
   fixture-full:
     name: full fixture (${{ matrix.fixture }})
