@@ -10,13 +10,29 @@ The converter intentionally decodes Tuist's graph with narrow local DTOs instead
 - [Tuist](https://tuist.io) 4.169.2+
 - [Bazelisk](https://github.com/bazelbuild/bazelisk)
 
+## Build from source
+
+The intended way to use `tuist-to-bazel` is from a source checkout that your team can inspect, pin, fork, and adapt to its migration needs. There is no separate global installation step.
+
+```bash
+git clone https://github.com/kaanbiryol/tuist-to-bazel.git
+cd tuist-to-bazel
+swift build -c release
+
+.build/release/tuist-to-bazel --help
+```
+
+Keep the checkout at a known commit for repeatable migrations. If the generic conversion rules do not match your project, fork the repository and keep the project-specific changes in that fork.
+
 ## Quick Start
 
 ```bash
+export TUIST_TO_BAZEL=/path/to/tuist-to-bazel/.build/release/tuist-to-bazel
+
 cd /path/to/tuist/project
 tuist graph -f json --no-open --output-path /tmp/tuist-graph
 
-swift run --package-path /path/to/tuist-to-bazel tuist-to-bazel convert \
+"$TUIST_TO_BAZEL" convert \
   --graph /tmp/tuist-graph/graph.json \
   --root /path/to/tuist/project \
   --output /path/to/tuist/project \
@@ -32,6 +48,16 @@ The CLI writes:
 - per-package `BUILD.bazel` files
 - generated support sources under `.bazel/Generated`
 - sanitized generated plist copies under `.bazel/InfoPlists` when needed
+
+## Customizing the converter
+
+The Swift package intentionally exposes the executable rather than a public library API. The source tree is the extension boundary:
+
+- `Sources/TuistToBazelCLI/main.swift` defines the command-line interface.
+- `Sources/TuistToBazelCore/TuistGraph.swift` and `TuistGraphParser.swift` define the narrow Tuist graph contract.
+- `Sources/TuistToBazelCore/BazelGenerator*.swift` and the renderers define the generated Bazel model.
+
+Run `swift test` after changing the conversion rules. Prefer small overrides that reflect real project needs; omitted Tuist features are not an implied compatibility backlog.
 
 ## Fixture Strategy
 
