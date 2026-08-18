@@ -2,784 +2,115 @@ import XCTest
 @testable import TuistToBazelCore
 
 final class BazelGeneratorTests: XCTestCase {
-    func testGeneratesAppFrameworkAndUnitTestRules() throws {
-        let root = URL(fileURLWithPath: "/tmp/Fixture")
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: "/tmp/Fixture/App",
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: "/tmp/Fixture/App",
-                            infoPlistPath: "/tmp/Fixture/App/Info.plist",
-                            sources: ["/tmp/Fixture/App/Sources/App.swift"],
-                            resources: [],
-                            dependencies: [
-                                .project(target: "Framework", path: "/tmp/Fixture/Framework"),
-                                .target(name: "AppExtension"),
-                                .framework(path: "/tmp/Fixture/App/Vendor/Prebuilt.framework"),
-                            ]
-                        ),
-                        TuistTarget(
-                            name: "AppExtension",
-                            product: .appExtension,
-                            bundleId: "dev.tuist.AppExtension",
-                            productName: "AppExtension",
-                            projectPath: "/tmp/Fixture/App",
-                            infoPlistPath: "/tmp/Fixture/App/AppExtension/Info.plist",
-                            sources: ["/tmp/Fixture/App/AppExtension/Extension.swift"],
-                            resources: [],
-                            dependencies: [.project(target: "Framework", path: "/tmp/Fixture/Framework")]
-                        ),
-                        TuistTarget(
-                            name: "AppTests",
-                            product: .unitTests,
-                            bundleId: "dev.tuist.AppTests",
-                            productName: "AppTests",
-                            projectPath: "/tmp/Fixture/App",
-                            infoPlistPath: "/tmp/Fixture/App/Tests.plist",
-                            sources: ["/tmp/Fixture/App/Tests/AppTests.swift"],
-                            resources: [],
-                            dependencies: [.target(name: "App")]
-                        ),
-                    ]
-                ),
-                TuistProject(
-                    name: "Framework",
-                    path: "/tmp/Fixture/Framework",
-                    targets: [
-                        TuistTarget(
-                            name: "Framework",
-                            product: .framework,
-                            bundleId: "dev.tuist.Framework",
-                            productName: "Framework",
-                            projectPath: "/tmp/Fixture/Framework",
-                            infoPlistPath: "/tmp/Fixture/Framework/Info.plist",
-                            sources: ["/tmp/Fixture/Framework/Sources/Framework.swift"],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "StaticFramework",
-                            product: .staticFramework,
-                            bundleId: "dev.tuist.StaticFramework",
-                            productName: "StaticFramework",
-                            projectPath: "/tmp/Fixture/Framework",
-                            infoPlistPath: "/tmp/Fixture/Framework/StaticFramework.plist",
-                            sources: ["/tmp/Fixture/Framework/Sources/StaticFramework.swift"],
-                            resources: [],
-                            dependencies: [.target(name: "Framework")]
-                        ),
-                    ]
-                ),
-            ]
-        )
+    func testGeneratesRetainedIOSAndMacOSProducts() throws {
+        let root = URL(fileURLWithPath: "/tmp/RetainedProductsFixture")
+        let targets = [
+            makeTarget(
+                "App",
+                product: .app,
+                root: root,
+                dependencies: [
+                    .target(name: "Framework"),
+                    .target(name: "AppExtension"),
+                    .target(name: "DynamicLibrary"),
+                ]
+            ),
+            makeTarget(
+                "AppExtension",
+                product: .appExtension,
+                root: root,
+                bundleId: "dev.tuist.App.extension",
+                dependencies: [.target(name: "Framework")]
+            ),
+            makeTarget("AppTests", product: .unitTests, root: root, dependencies: [.target(name: "App")]),
+            makeTarget("AppUITests", product: .uiTests, root: root, dependencies: [.target(name: "App")]),
+            makeTarget("Framework", product: .framework, root: root),
+            makeTarget(
+                "StaticFramework",
+                product: .staticFramework,
+                root: root,
+                dependencies: [.target(name: "Framework")]
+            ),
+            makeTarget("StaticLibrary", product: .staticLibrary, root: root),
+            makeTarget(
+                "DynamicLibrary",
+                product: .dynamicLibrary,
+                root: root,
+                destinations: ["iPhone", "appleTv"]
+            ),
+            makeTarget("MacApp", product: .app, root: root, destinations: ["mac"], dependencies: [.target(name: "MacFramework")]),
+            makeTarget("MacFramework", product: .framework, root: root, destinations: ["mac"]),
+        ]
+        let graph = graph(named: "RetainedProductsFixture", root: root, targets: targets)
 
         var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
+        let build = try XCTUnwrap(try generator.render().files["BUILD.bazel"])
 
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_application(") == true)
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_extension(") == true)
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("apple_static_framework_import(") == true)
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("name = \"_PrebuiltImport\"") == true)
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("\":_PrebuiltImport\"") == true)
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_test_runner(") == true)
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("ios_unit_test(") == true)
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("runner = \":_ios_test_runner\"") == true)
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("tags = [\"manual\"]") == true)
-        XCTAssertTrue(rendered["App/BUILD.bazel"]?.contains("test_host = \":App\"") == true)
-        XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("ios_framework(") == true)
-        XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("extension_safe = True") == true)
-        XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("ios_static_framework(") == true)
-        XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("avoid_deps =") == true)
-        XCTAssertTrue(rendered["Framework/BUILD.bazel"]?.contains("\":FrameworkLib\"") == true)
-    }
-
-    func testBundlesStaticFrameworkResourceDependenciesIntoApp() throws {
-        let root = URL(fileURLWithPath: "/tmp/StaticFrameworkResourcesFixture")
-        let appPath = root.appendingPathComponent("App")
-        let staticFrameworkPath = root.appendingPathComponent("StaticFramework2")
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: appPath.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: appPath.path,
-                            infoPlistPath: nil,
-                            sources: [appPath.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .project(target: "StaticFramework2", path: staticFrameworkPath.path),
-                            ]
-                        ),
-                    ]
-                ),
-                TuistProject(
-                    name: "StaticFramework2",
-                    path: staticFrameworkPath.path,
-                    targets: [
-                        TuistTarget(
-                            name: "StaticFramework2",
-                            product: .staticFramework,
-                            bundleId: "dev.tuist.StaticFramework2",
-                            productName: "StaticFramework2",
-                            projectPath: staticFrameworkPath.path,
-                            infoPlistPath: nil,
-                            sources: [staticFrameworkPath.appendingPathComponent("Sources/StaticFramework2.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "StaticFramework2Resources")]
-                        ),
-                        TuistTarget(
-                            name: "StaticFramework2Resources",
-                            product: .bundle,
-                            bundleId: "dev.tuist.StaticFramework2Resources",
-                            productName: "StaticFramework2Resources",
-                            projectPath: staticFrameworkPath.path,
-                            infoPlistPath: nil,
-                            sources: [],
-                            resources: [
-                                TuistResource(
-                                    path: staticFrameworkPath.appendingPathComponent("Resources/image.png").path,
-                                    kind: .file,
-                                    tags: []
-                                ),
-                            ],
-                            dependencies: []
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let appBuild = try XCTUnwrap(rendered["App/BUILD.bazel"])
-        XCTAssertTrue(appBuild.contains("resources = ["))
-        XCTAssertTrue(appBuild.contains("\"//StaticFramework2:StaticFramework2Resources\""))
-
-        let staticFrameworkBuild = try XCTUnwrap(rendered["StaticFramework2/BUILD.bazel"])
-        XCTAssertTrue(staticFrameworkBuild.contains("ios_static_framework("))
-        XCTAssertTrue(staticFrameworkBuild.contains("resources = [\n        \":StaticFramework2Resources\","))
-    }
-
-    func testGeneratesIOSAppClipAndEmbedsItInHostApp() throws {
-        let root = URL(fileURLWithPath: "/tmp/AppClipFixture")
-        let graph = TuistGraph(
-            name: "AppClipFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: root.appendingPathComponent("App/Info.plist").path,
-                            sources: [root.appendingPathComponent("App/Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "AppClip")]
-                        ),
-                        TuistTarget(
-                            name: "AppClip",
-                            product: .appClip,
-                            bundleId: "dev.tuist.App.Clip",
-                            productName: "AppClip",
-                            projectPath: root.path,
-                            infoPlistPath: root.appendingPathComponent("AppClip/Info.plist").path,
-                            sources: [root.appendingPathComponent("AppClip/Sources/AppClip.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "AppClipUITests",
-                            product: .uiTests,
-                            bundleId: "dev.tuist.AppClipUITests",
-                            productName: "AppClipUITests",
-                            projectPath: root.path,
-                            infoPlistPath: root.appendingPathComponent("AppClipUITests/Info.plist").path,
-                            sources: [root.appendingPathComponent("AppClipUITests/Tests/AppClipUITests.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "AppClip")]
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render()
-        let build = try XCTUnwrap(rendered.files["BUILD.bazel"])
-
-        XCTAssertTrue(build.contains("\"ios_app_clip\""))
-        XCTAssertTrue(build.contains("\"ios_application\""))
-        XCTAssertTrue(build.contains("ios_app_clip("))
-        XCTAssertTrue(build.contains("name = \"AppClip\""))
-        XCTAssertTrue(build.contains("bundle_id = \"dev.tuist.App.Clip\""))
-        XCTAssertTrue(build.contains("app_clips = ["))
-        XCTAssertTrue(build.contains("\":AppClip\""))
-        XCTAssertTrue(build.contains("deps = [\":AppClipLib\"]"))
-        XCTAssertTrue(build.contains("ios_ui_test("))
+        XCTAssertTrue(build.contains("ios_application(\n    name = \"App\""))
+        XCTAssertTrue(build.contains("macos_application(\n    name = \"MacApp\""))
+        XCTAssertTrue(build.contains("ios_extension(\n    name = \"AppExtension\""))
+        XCTAssertTrue(build.contains("ios_framework(\n    name = \"Framework\""))
+        XCTAssertTrue(build.contains("macos_framework(\n    name = \"MacFramework\""))
+        XCTAssertTrue(build.contains("ios_static_framework(\n    name = \"StaticFramework\""))
+        XCTAssertTrue(build.contains("swift_library(\n    name = \"StaticLibrary\""))
+        XCTAssertTrue(build.contains("swift_library(\n    name = \"DynamicLibrary\""))
+        XCTAssertTrue(build.contains("ios_unit_test(\n    name = \"AppTests\""))
+        XCTAssertTrue(build.contains("ios_ui_test(\n    name = \"AppUITests\""))
+        XCTAssertTrue(build.contains("ios_test_runner(\n    name = \"_ios_test_runner\""))
         XCTAssertTrue(build.contains("test_host = \":App\""))
-        XCTAssertFalse(build.contains("test_host = \":AppClip\""))
-        XCTAssertFalse(build.contains("skipped: unsupported product"))
-        XCTAssertFalse(rendered.warnings.contains { $0.contains("unsupported product") })
+        XCTAssertTrue(build.contains("extension_safe = True"))
+        XCTAssertTrue(build.contains("minimum_os_version = \"14.0\""))
     }
 
-    func testGeneratesCoreDataModelSourcesAndResources() throws {
-        let root = URL(fileURLWithPath: "/tmp/CoreDataFixture")
-        let model = root.appendingPathComponent("CoreData/Users.xcdatamodeld/1.xcdatamodel", isDirectory: true)
-        let sources = root.appendingPathComponent("Sources", isDirectory: true)
-        try? FileManager.default.removeItem(at: root)
-        try FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
-        try """
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" sourceLanguage="Swift">
-            <entity name="User" representedClassName="User" syncable="YES" codeGenerationType="category">
-                <attribute name="name" optional="YES" attributeType="String"/>
-            </entity>
-        </model>
-        """.write(to: model.appendingPathComponent("contents"), atomically: true, encoding: .utf8)
-        try """
-        import CoreData
-
-        func loadUsers() {
-            _ = User.fetchRequest()
-        }
-        """.write(to: sources.appendingPathComponent("Model.swift"), atomically: true, encoding: .utf8)
-
-        let graph = TuistGraph(
-            name: "CoreDataFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: root.appendingPathComponent("Info.plist").path,
-                            sources: [sources.appendingPathComponent("Model.swift").path],
-                            coreDataModels: [
-                                TuistCoreDataModel(
-                                    path: root.appendingPathComponent("CoreData/Users.xcdatamodeld").path,
-                                    currentVersion: "1",
-                                    versions: [model.path]
-                                ),
-                            ],
-                            resources: [],
-                            dependencies: []
-                        ),
-                    ]
-                ),
-            ]
-        )
+    func testPropagatesStaticLibraryAndBundleResourcesIntoApp() throws {
+        let root = URL(fileURLWithPath: "/tmp/StaticResourcesFixture")
+        let image = root.appendingPathComponent("Resources/image.png").path
+        let targets = [
+            makeTarget("App", product: .app, root: root, dependencies: [.target(name: "StaticLibrary")]),
+            makeTarget(
+                "StaticLibrary",
+                product: .staticLibrary,
+                root: root,
+                dependencies: [.target(name: "ResourceBundle")]
+            ),
+            makeTarget(
+                "ResourceBundle",
+                product: .bundle,
+                root: root,
+                sources: [],
+                resources: [TuistResource(path: image, kind: .file, tags: [])]
+            ),
+        ]
+        let graph = graph(named: "StaticResourcesFixture", root: root, targets: targets)
 
         var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render()
-        let build = try XCTUnwrap(rendered.files["BUILD.bazel"])
-        let accessor = try XCTUnwrap(rendered.files[".bazel/Generated/AppResourceAccessors.swift"])
+        let build = try XCTUnwrap(try generator.render().files["BUILD.bazel"])
 
-        XCTAssertTrue(build.contains("load(\"@build_bazel_rules_apple//apple:resources.bzl\", \"apple_bundle_import\", \"apple_core_data_model\", \"apple_resource_bundle\", \"apple_resource_group\")"))
-        XCTAssertTrue(build.contains("apple_core_data_model("))
-        XCTAssertTrue(build.contains("name = \"_AppCoreDataSources\""))
-        XCTAssertTrue(build.contains("\"CoreData/Users.xcdatamodeld/1.xcdatamodel/contents\""))
-        XCTAssertTrue(build.contains("\"Users+CoreDataModel.swift\""))
-        XCTAssertTrue(build.contains("\"User+CoreDataProperties.swift\""))
-        XCTAssertTrue(build.contains("srcs = ["))
-        XCTAssertTrue(build.contains("\":_AppCoreDataSources\""))
-        XCTAssertTrue(build.contains("resources = glob([\"CoreData/Users.xcdatamodeld/**\"])"))
-        XCTAssertTrue(accessor.contains("import CoreData"))
-        XCTAssertTrue(accessor.contains("@objc(User)"))
-        XCTAssertTrue(accessor.contains("public final class User: NSManagedObject"))
-    }
-
-    func testGeneratesTVOSAppAndTopShelfExtensionRules() throws {
-        let root = URL(fileURLWithPath: "/tmp/TVFixture")
-        let graph = TuistGraph(
-            name: "TVFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            destinations: ["appleTv"],
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: root.appendingPathComponent("Info.plist").path,
-                            sources: [root.appendingPathComponent("Sources/AppDelegate.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "TopShelfExtension")]
-                        ),
-                        TuistTarget(
-                            name: "TopShelfExtension",
-                            product: .tvTopShelfExtension,
-                            destinations: ["appleTv"],
-                            bundleId: "dev.tuist.App.TopShelfExtension",
-                            productName: "TopShelfExtension",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            infoPlistEntries: [
-                                "NSExtension": .dictionary([
-                                    "NSExtensionPointIdentifier": .string("com.apple.tv-top-shelf"),
-                                ]),
-                            ],
-                            sources: [root.appendingPathComponent("TopShelfExtension/ContentProvider.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:tvos.bzl\", \"tvos_application\", \"tvos_extension\")"))
-        XCTAssertTrue(rootBuild.contains("tvos_application("))
-        XCTAssertTrue(rootBuild.contains("families = [\"tv\"]"))
-        XCTAssertTrue(rootBuild.contains("extensions = ["))
-        XCTAssertTrue(rootBuild.contains("\":TopShelfExtension\""))
-        XCTAssertTrue(rootBuild.contains("tvos_extension("))
-        XCTAssertTrue(rootBuild.contains("target_environments = [\"simulator\"]"))
-        XCTAssertTrue(rendered[".bazel/InfoPlists/TopShelfExtension-Info.plist"]?.contains("com.apple.tv-top-shelf") == true)
-    }
-
-    func testGeneratesVisionOSAppAndUnitTestRules() throws {
-        let root = URL(fileURLWithPath: "/tmp/VisionFixture")
-        let graph = TuistGraph(
-            name: "VisionFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            destinations: ["appleVision"],
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: root.appendingPathComponent("Support/Info.plist").path,
-                            sources: [root.appendingPathComponent("Sources/AppDelegate.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "AppTests",
-                            product: .unitTests,
-                            destinations: ["appleVision"],
-                            bundleId: "dev.tuist.AppTests",
-                            productName: "AppTests",
-                            projectPath: root.path,
-                            infoPlistPath: root.appendingPathComponent("Support/Tests.plist").path,
-                            sources: [root.appendingPathComponent("Tests/AppTests.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "App")]
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:visionos.bzl\", \"visionos_application\", \"visionos_unit_test\")"))
-        XCTAssertTrue(rootBuild.contains("visionos_application("))
-        XCTAssertTrue(rootBuild.contains("families = [\"vision\"]"))
-        XCTAssertTrue(rootBuild.contains("minimum_os_version = \"1.0\""))
-        XCTAssertTrue(rootBuild.contains("visionos_unit_test("))
-        XCTAssertTrue(rootBuild.contains("test_host = \":App\""))
-        XCTAssertTrue(rootBuild.contains("tags = [\"manual\"]"))
-        XCTAssertTrue(rootBuild.contains("target_environments = [\"simulator\"]"))
-        XCTAssertFalse(rootBuild.contains("ios_application("))
-        XCTAssertFalse(rootBuild.contains("ios_unit_test("))
-    }
-
-    func testGeneratesIOSUITestRules() throws {
-        let root = URL(fileURLWithPath: "/tmp/UITestFixture")
-        let graph = TuistGraph(
-            name: "UITestFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "AppUITests",
-                            product: .uiTests,
-                            bundleId: "dev.tuist.AppUITests",
-                            productName: "AppUITests",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("UITests/AppUITests.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "App")]
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let result = try generator.render()
-        let rootBuild = try XCTUnwrap(result.files["BUILD.bazel"])
-
-        XCTAssertFalse(result.warnings.contains { $0.contains("ui test target") })
-        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:ios.bzl\", \"ios_application\", \"ios_ui_test\")"))
-        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple/testing/default_runner:ios_test_runner.bzl\", \"ios_test_runner\")"))
-        XCTAssertTrue(rootBuild.contains("ios_test_runner(\n    name = \"_ios_test_runner\""))
-        XCTAssertFalse(rootBuild.contains("device_type ="))
-        XCTAssertTrue(rootBuild.contains("ios_ui_test("))
-        XCTAssertTrue(rootBuild.contains("name = \"AppUITests\""))
-        XCTAssertTrue(rootBuild.contains("test_host = \":App\""))
-        XCTAssertTrue(rootBuild.contains("runner = \":_ios_test_runner\""))
-        XCTAssertTrue(rootBuild.contains("name = \"AppUITestsLib\""))
-        XCTAssertTrue(rootBuild.contains("testonly = True"))
-        XCTAssertFalse(rootBuild.contains("test_host_is_bundle_loader = True"))
-        XCTAssertFalse(rootBuild.contains("ui test generation is not implemented"))
-    }
-
-    func testGeneratesTVOSUITestRules() throws {
-        let root = URL(fileURLWithPath: "/tmp/TVUITestFixture")
-        let graph = TuistGraph(
-            name: "TVUITestFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            destinations: ["appleTv"],
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "AppUITests",
-                            product: .uiTests,
-                            destinations: ["appleTv"],
-                            bundleId: "dev.tuist.AppUITests",
-                            productName: "AppUITests",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("UITests/AppUITests.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "App")]
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let result = try generator.render()
-        let rootBuild = try XCTUnwrap(result.files["BUILD.bazel"])
-
-        XCTAssertFalse(result.warnings.contains { $0.contains("ui test target") })
-        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:tvos.bzl\", \"tvos_application\", \"tvos_ui_test\")"))
-        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple/testing/default_runner:tvos_test_runner.bzl\", \"tvos_test_runner\")"))
-        XCTAssertTrue(rootBuild.contains("tvos_test_runner(\n    name = \"_tvos_test_runner\""))
-        XCTAssertTrue(rootBuild.contains("tvos_ui_test("))
-        XCTAssertTrue(rootBuild.contains("test_host = \":App\""))
-        XCTAssertTrue(rootBuild.contains("runner = \":_tvos_test_runner\""))
-        XCTAssertFalse(rootBuild.contains("ios_ui_test("))
-        XCTAssertFalse(rootBuild.contains("ios_test_runner("))
+        XCTAssertTrue(build.contains("apple_resource_bundle(\n    name = \"ResourceBundle\""))
+        XCTAssertTrue(build.contains("resources = [\n        \":ResourceBundle\","))
     }
 
     func testGeneratesSwiftCompilerPluginsForMacroTargets() throws {
         let root = URL(fileURLWithPath: "/tmp/MacroFixture")
-        let graph = TuistGraph(
-            name: "MacroFixture",
-            projects: [
-                TuistProject(
-                    name: "Framework",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "Framework",
-                            product: .framework,
-                            destinations: ["mac"],
-                            bundleId: "dev.tuist.Framework",
-                            productName: "Framework",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/Framework.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "FrameworkMacros")]
-                        ),
-                        TuistTarget(
-                            name: "FrameworkMacros",
-                            product: .macro,
-                            destinations: ["mac"],
-                            bundleId: "dev.tuist.FrameworkMacros",
-                            productName: "FrameworkMacros",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/FrameworkMacros/Plugin.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                    ]
-                ),
-            ]
+        let targets = [
+            makeTarget(
+                "Framework",
+                product: .framework,
+                root: root,
+                destinations: ["mac"],
+                dependencies: [.target(name: "FrameworkMacros")]
+            ),
+            makeTarget("FrameworkMacros", product: .macro, root: root, destinations: ["mac"]),
+        ]
+        var generator = BazelGenerator(
+            graph: graph(named: "MacroFixture", root: root, targets: targets),
+            paths: PathContext(root: root, output: root)
         )
+        let build = try XCTUnwrap(try generator.render().files["BUILD.bazel"])
 
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_swift//swift:swift.bzl\", \"swift_compiler_plugin\", \"swift_library\")"))
-        XCTAssertTrue(rootBuild.contains("swift_compiler_plugin(\n    name = \"FrameworkMacros\""))
-        XCTAssertTrue(rootBuild.contains("swift_library(\n    name = \"FrameworkLib\""))
-        XCTAssertTrue(rootBuild.contains("plugins = [\n        \":FrameworkMacros\","))
-        XCTAssertTrue(rootBuild.contains("macos_framework("))
-        XCTAssertTrue(rootBuild.contains("top_level_target(\n            \"//:Framework\""))
-    }
-
-    func testAddsDeveloperSearchPathsForUnconditionalXCTestImports() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("tuist-to-bazel-xctest-import-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let sources = root.appendingPathComponent("Sources/TestSupport", isDirectory: true)
-        try fileManager.createDirectory(at: sources, withIntermediateDirectories: true)
-        try """
-        import XCTest
-
-        public func assertSomething(_ value: Bool) {
-            XCTAssertTrue(value)
-        }
-        """.write(to: sources.appendingPathComponent("TestSupport.swift"), atomically: true, encoding: .utf8)
-
-        let graph = TuistGraph(
-            name: "XCTestImportFixture",
-            projects: [
-                TuistProject(
-                    name: "Support",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "TestSupport",
-                            product: .staticLibrary,
-                            bundleId: nil,
-                            productName: "TestSupport",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [sources.appendingPathComponent("TestSupport.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("always_include_developer_search_paths = True"))
-        XCTAssertTrue(rootBuild.contains("linkopts = [\n        \"-framework\",\n        \"XCTest\","))
-    }
-
-    func testGeneratesLocalSwiftPackageDependencies() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("tuist-to-bazel-local-spm-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let package = root.appendingPathComponent("Packages/PackageA", isDirectory: true)
-        let libraryA = package.appendingPathComponent("Sources/LibraryA", isDirectory: true)
-        let libraryB = package.appendingPathComponent("Sources/LibraryB", isDirectory: true)
-        try fileManager.createDirectory(at: libraryA, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: libraryB, withIntermediateDirectories: true)
-        try """
-        // swift-tools-version: 6.2
-        import PackageDescription
-
-        let package = Package(
-            name: "PackageA",
-            products: [
-                .library(name: "LibraryA", targets: ["LibraryA"]),
-                .library(name: "LibraryB", targets: ["LibraryB"]),
-            ],
-            targets: [
-                .target(name: "LibraryA", dependencies: []),
-                .target(name: "LibraryB", dependencies: []),
-            ]
-        )
-        """.write(to: package.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
-        try "public struct LibraryAType {}\n".write(
-            to: libraryA.appendingPathComponent("LibraryA.swift"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "public struct LibraryBType {}\n".write(
-            to: libraryB.appendingPathComponent("LibraryB.swift"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let graph = TuistGraph(
-            name: "LocalSPMFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .package(product: "LibraryA"),
-                                .package(product: "LibraryB"),
-                            ]
-                        ),
-                    ]
-                ),
-            ],
-            localSwiftPackages: [TuistLocalSwiftPackage(path: package.path)]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let result = try generator.render()
-        let rendered = result.files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        let packageBuild = try XCTUnwrap(rendered["Packages/PackageA/BUILD.bazel"])
-        XCTAssertFalse(result.warnings.contains { $0.contains("package dependency") })
-        XCTAssertTrue(rootBuild.contains("//Packages/PackageA:LibraryA"))
-        XCTAssertTrue(rootBuild.contains("//Packages/PackageA:LibraryB"))
-        XCTAssertTrue(packageBuild.contains("swift_library(\n    name = \"LibraryA\""))
-        XCTAssertTrue(packageBuild.contains("Sources/LibraryA/LibraryA.swift"))
-        XCTAssertTrue(packageBuild.contains("swift_library(\n    name = \"LibraryB\""))
-        XCTAssertTrue(packageBuild.contains("Sources/LibraryB/LibraryB.swift"))
-    }
-
-    func testGeneratesLocalBinarySwiftPackageDependencies() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("tuist-to-bazel-local-binary-spm-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let package = root.appendingPathComponent("Packages/LocalPackage", isDirectory: true)
-        let xcframework = package.appendingPathComponent("MyFramework/prebuilt/MyFramework.xcframework", isDirectory: true)
-        let swiftModule = xcframework.appendingPathComponent(
-            "ios-arm64_x86_64-simulator/MyFramework.framework/Modules/MyFramework.swiftmodule",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: swiftModule, withIntermediateDirectories: true)
-        try Data().write(to: swiftModule.appendingPathComponent("arm64-apple-ios-simulator.swiftinterface"))
-        try writeXCFrameworkInfo(at: xcframework, libraryPath: "MyFramework.framework")
-        try """
-        // swift-tools-version: 5.9
-        import PackageDescription
-
-        let package = Package(
-            name: "LocalPackage",
-            products: [
-                .library(name: "MyFramework", targets: ["MyFramework"]),
-            ],
-            targets: [
-                .binaryTarget(
-                    name: "MyFramework",
-                    path: "MyFramework/prebuilt/MyFramework.xcframework"
-                ),
-            ]
-        )
-        """.write(to: package.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
-
-        let graph = TuistGraph(
-            name: "LocalBinarySPMFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [.package(product: "MyFramework")]
-                        ),
-                    ]
-                ),
-            ],
-            localSwiftPackages: [TuistLocalSwiftPackage(path: package.path)]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let result = try generator.render()
-        let rendered = result.files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        let packageBuild = try XCTUnwrap(rendered["Packages/LocalPackage/BUILD.bazel"])
-        XCTAssertFalse(result.warnings.contains { $0.contains("package dependency") })
-        XCTAssertTrue(rootBuild.contains("//Packages/LocalPackage:MyFramework"))
-        XCTAssertTrue(packageBuild.contains("load(\"@build_bazel_rules_apple//apple:apple.bzl\", \"apple_dynamic_xcframework_import\")"))
-        XCTAssertTrue(packageBuild.contains("apple_dynamic_xcframework_import(\n    name = \"MyFramework\""))
-        XCTAssertTrue(packageBuild.contains("features = ["))
-        XCTAssertTrue(packageBuild.contains("\"-swift.layering_check\""))
-        XCTAssertTrue(packageBuild.contains("xcframework_imports = glob([\"MyFramework/prebuilt/MyFramework.xcframework/**\"])"))
+        XCTAssertTrue(build.contains("swift_compiler_plugin(\n    name = \"FrameworkMacros\""))
+        XCTAssertTrue(build.contains("plugins = [\n        \":FrameworkMacros\","))
+        XCTAssertTrue(build.contains("macos_framework("))
     }
 
     func testGeneratesRemoteSwiftPackageDependencies() throws {
@@ -791,1114 +122,364 @@ final class BazelGeneratorTests: XCTestCase {
         try """
         {
           "object": {
-            "pins": [
-              {
-                "package": "RxSwift",
-                "repositoryURL": "https://github.com/ReactiveX/RxSwift",
-                "state": {
-                  "branch": null,
-                  "revision": "b3e888b4972d9bc76495dd74d30a8c7fad4b9395",
-                  "version": "5.0.1"
-                }
-              }
-            ]
+            "pins": [{
+              "package": "RxSwift",
+              "repositoryURL": "https://github.com/ReactiveX/RxSwift",
+              "state": { "branch": null, "revision": "abc123", "version": "5.0.1" }
+            }]
           },
           "version": 1
         }
         """.write(to: root.appendingPathComponent("Package.resolved"), atomically: true, encoding: .utf8)
 
+        let target = makeTarget(
+            "App",
+            product: .app,
+            root: root,
+            dependencies: [
+                .package(product: "RxSwift"),
+                .package(product: "RxSwiftPlugin", kind: .plugin),
+            ]
+        )
         let graph = TuistGraph(
             name: "RemoteSPMFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .package(product: "RxSwift"),
-                                .package(product: "RxBlocking"),
-                            ]
-                        ),
-                    ]
-                ),
-            ],
+            projects: [TuistProject(name: "App", path: root.path, targets: [target])],
             remoteSwiftPackages: [
-                TuistRemoteSwiftPackage(url: "https://github.com/ReactiveX/RxSwift", requirement: .upToNextMajor("5.0.0")),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let result = try generator.render()
-        let rendered = result.files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        let module = try XCTUnwrap(rendered["MODULE.bazel"])
-        let packageSwift = try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.swift"])
-        let packageResolved = try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.resolved"])
-        XCTAssertFalse(result.warnings.contains { $0.contains("package dependency") })
-        XCTAssertTrue(rootBuild.contains("@swiftpkg_rxswift//:RxSwift"))
-        XCTAssertTrue(rootBuild.contains("@swiftpkg_rxswift//:RxBlocking"))
-        XCTAssertTrue(module.contains("swift_deps.from_package("))
-        XCTAssertTrue(module.contains("\"swiftpkg_rxswift\""))
-        XCTAssertTrue(packageSwift.contains(".package(url: \"https://github.com/ReactiveX/RxSwift\", .upToNextMajor(from: \"5.0.0\"))"))
-        XCTAssertTrue(packageResolved.contains("\"identity\" : \"rxswift\""))
-    }
-
-    func testGeneratesLocalSwiftPackageTransitiveRemoteDependencies() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("tuist-to-bazel-local-remote-spm-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let package = root.appendingPathComponent("LocalSwiftPackage", isDirectory: true)
-        let sources = package.appendingPathComponent("Sources/LocalSwiftPackage", isDirectory: true)
-        try fileManager.createDirectory(at: sources, withIntermediateDirectories: true)
-        try """
-        // swift-tools-version: 5.10
-        import PackageDescription
-
-        let package = Package(
-            name: "LocalSwiftPackage",
-            products: [
-                .library(name: "LocalSwiftPackage", targets: ["LocalSwiftPackage"]),
-            ],
-            dependencies: [
-                .package(url: "https://github.com/apple/swift-collections", from: "1.0.0"),
-            ],
-            targets: [
-                .target(
-                    name: "LocalSwiftPackage",
-                    dependencies: [
-                        .product(name: "Collections", package: "swift-collections"),
-                    ]
+                TuistRemoteSwiftPackage(
+                    url: "https://github.com/ReactiveX/RxSwift",
+                    requirement: .upToNextMajor("5.0.0")
                 ),
             ]
         )
-        """.write(to: package.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
-        try """
-        {
-          "pins" : [
-            {
-              "identity" : "swift-collections",
-              "kind" : "remoteSourceControl",
-              "location" : "https://github.com/apple/swift-collections",
-              "state" : {
-                "revision" : "7b847a3b7008b2dc2f47ca3110d8c782fb2e5c7e",
-                "version" : "1.3.0"
-              }
-            }
-          ],
-          "version" : 2
-        }
-        """.write(to: package.appendingPathComponent("Package.resolved"), atomically: true, encoding: .utf8)
-        try "import Collections\npublic struct LocalType {}\n".write(
-            to: sources.appendingPathComponent("LocalSwiftPackage.swift"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let graph = TuistGraph(
-            name: "LocalRemoteSPMFixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("App/Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [.package(product: "LocalSwiftPackage")]
-                        ),
-                    ]
-                ),
-            ],
-            localSwiftPackages: [TuistLocalSwiftPackage(path: package.path)]
-        )
-
         var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
         let rendered = try generator.render().files
 
-        let module = try XCTUnwrap(rendered["MODULE.bazel"])
-        let packageBuild = try XCTUnwrap(rendered["LocalSwiftPackage/BUILD.bazel"])
-        let packageSwift = try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.swift"])
-        XCTAssertTrue(module.contains("\"swiftpkg_swift_collections\""))
-        XCTAssertTrue(packageBuild.contains("@swiftpkg_swift_collections//:Collections"))
-        XCTAssertTrue(packageSwift.contains(".package(url: \"https://github.com/apple/swift-collections\", .upToNextMajor(from: \"1.0.0\"))"))
-    }
-
-    func testGeneratesStaticLibraryDependenciesForProjectAndSwiftArchive() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("tuist-to-bazel-static-library-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let appProject = root
-        let aProject = root.appendingPathComponent("Modules/A", isDirectory: true)
-        let bProject = root.appendingPathComponent("Modules/B", isDirectory: true)
-        let cPrebuilt = root.appendingPathComponent("Modules/C/prebuilt/C", isDirectory: true)
-        let cSwiftModule = cPrebuilt.appendingPathComponent("C.swiftmodule", isDirectory: true)
-        try fileManager.createDirectory(at: cSwiftModule, withIntermediateDirectories: true)
-        try Data().write(to: cPrebuilt.appendingPathComponent("libC.a"))
-        try Data().write(to: cSwiftModule.appendingPathComponent("arm64-apple-ios-simulator.swiftinterface"))
-        try Data().write(to: cSwiftModule.appendingPathComponent("arm64-apple-ios-simulator.swiftdoc"))
-
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: appProject.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: appProject.path,
-                            infoPlistPath: nil,
-                            sources: [appProject.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [.project(target: "A", path: aProject.path)]
-                        ),
-                    ]
-                ),
-                TuistProject(
-                    name: "A",
-                    path: aProject.path,
-                    targets: [
-                        TuistTarget(
-                            name: "A",
-                            product: .staticLibrary,
-                            bundleId: nil,
-                            productName: "A",
-                            projectPath: aProject.path,
-                            infoPlistPath: nil,
-                            sources: [aProject.appendingPathComponent("Sources/A.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .project(target: "B", path: bProject.path),
-                                .library(
-                                    path: cPrebuilt.appendingPathComponent("libC.a").path,
-                                    publicHeaders: cPrebuilt.path,
-                                    swiftModuleMap: cSwiftModule.path
-                                ),
-                            ]
-                        ),
-                    ]
-                ),
-                TuistProject(
-                    name: "B",
-                    path: bProject.path,
-                    targets: [
-                        TuistTarget(
-                            name: "B",
-                            product: .staticLibrary,
-                            bundleId: nil,
-                            productName: "B",
-                            projectPath: bProject.path,
-                            infoPlistPath: nil,
-                            sources: [bProject.appendingPathComponent("Sources/B.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                    ]
-                ),
-            ]
+        XCTAssertTrue(try XCTUnwrap(rendered["BUILD.bazel"]).contains("@swiftpkg_rxswift//:RxSwift"))
+        XCTAssertTrue(
+            try XCTUnwrap(rendered["BUILD.bazel"])
+                .contains("plugins = [\n        \"@swiftpkg_rxswift//:RxSwiftPlugin\",")
         )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        let aBuild = try XCTUnwrap(rendered["Modules/A/BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("swift_import("))
-        XCTAssertTrue(rootBuild.contains("name = \"_CImport\""))
-        XCTAssertTrue(rootBuild.contains("swiftinterface = \"Modules/C/prebuilt/C/C.swiftmodule/arm64-apple-ios-simulator.swiftinterface\""))
-        XCTAssertTrue(rootBuild.contains("tags = [\"manual\"]"))
-        XCTAssertTrue(aBuild.contains("//Modules/B:B"))
-        XCTAssertTrue(aBuild.contains("//:_CImport"))
-        XCTAssertTrue(aBuild.contains("tags = [\"manual\"]"))
+        XCTAssertTrue(try XCTUnwrap(rendered["MODULE.bazel"]).contains("\"swiftpkg_rxswift\""))
+        XCTAssertTrue(
+            try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.swift"])
+                .contains(".package(url: \"https://github.com/ReactiveX/RxSwift\", .upToNextMajor(from: \"5.0.0\"))")
+        )
+        XCTAssertTrue(try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.resolved"]).contains("\"identity\" : \"rxswift\""))
     }
 
-    func testGeneratesXCFrameworkImports() throws {
+    func testGeneratesStaticAndDynamicXCFrameworkImports() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("tuist-to-bazel-xcframework-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
-
-        let dynamicXCFramework = root.appendingPathComponent("Vendor/MyFramework.xcframework", isDirectory: true)
-        try writeXCFrameworkInfo(at: dynamicXCFramework, libraryPath: "MyFramework.framework")
-        try fileManager.createDirectory(
-            at: dynamicXCFramework.appendingPathComponent("ios-arm64_x86_64-simulator/MyFramework.framework", isDirectory: true),
-            withIntermediateDirectories: true
-        )
-
-        let staticXCFramework = root.appendingPathComponent("Vendor/MyStaticLibrary.xcframework", isDirectory: true)
-        try writeXCFrameworkInfo(at: staticXCFramework, libraryPath: "libMyStaticLibrary.a")
-        let staticModule = staticXCFramework.appendingPathComponent(
+        let dynamic = root.appendingPathComponent("Vendor/MyFramework.xcframework", isDirectory: true)
+        let `static` = root.appendingPathComponent("Vendor/MyStaticLibrary.xcframework", isDirectory: true)
+        try writeXCFrameworkInfo(at: dynamic, libraryPath: "MyFramework.framework")
+        try writeXCFrameworkInfo(at: `static`, libraryPath: "libMyStaticLibrary.a")
+        let staticModule = `static`.appendingPathComponent(
             "ios-arm64_x86_64-simulator/MyStaticLibrary.swiftmodule",
             isDirectory: true
         )
         try fileManager.createDirectory(at: staticModule, withIntermediateDirectories: true)
         try Data().write(to: staticModule.appendingPathComponent("arm64-apple-ios-simulator.swiftinterface"))
 
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .xcframework(path: dynamicXCFramework.path),
-                                .xcframework(path: staticXCFramework.path),
-                            ]
-                        ),
-                    ]
-                ),
-            ]
+        let target = makeTarget(
+            "App",
+            product: .app,
+            root: root,
+            dependencies: [.xcframework(path: dynamic.path), .xcframework(path: `static`.path)]
         )
+        var generator = BazelGenerator(
+            graph: graph(named: "XCFrameworkFixture", root: root, targets: [target]),
+            paths: PathContext(root: root, output: root)
+        )
+        let build = try XCTUnwrap(try generator.render().files["BUILD.bazel"])
 
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("apple_dynamic_xcframework_import("))
-        XCTAssertTrue(rootBuild.contains("name = \"_MyFrameworkImport\""))
-        XCTAssertTrue(rootBuild.contains("apple_static_xcframework_import("))
-        XCTAssertTrue(rootBuild.contains("name = \"_MyStaticLibraryImport\""))
-        XCTAssertTrue(rootBuild.contains("\"-swift.layering_check\""))
-        XCTAssertTrue(rootBuild.contains("\"apple._import_framework_via_swiftinterface\""))
-        XCTAssertTrue(rootBuild.contains("\":_MyFrameworkImport\""))
-        XCTAssertTrue(rootBuild.contains("\":_MyStaticLibraryImport\""))
+        XCTAssertTrue(build.contains("apple_dynamic_xcframework_import("))
+        XCTAssertTrue(build.contains("name = \"_MyFrameworkImport\""))
+        XCTAssertTrue(build.contains("apple_static_xcframework_import("))
+        XCTAssertTrue(build.contains("name = \"_MyStaticLibraryImport\""))
+        XCTAssertTrue(build.contains("apple._import_framework_via_swiftinterface"))
     }
 
-    func testAddsBinaryImportDepsForImportedModules() throws {
+    func testAddsXCFrameworkDependencyWhenAnotherTargetImportsItsModule() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("tuist-to-bazel-xcframework-source-import-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("tuist-to-bazel-xcframework-import-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
-
         let xcframework = root.appendingPathComponent("Vendor/MyFramework.xcframework", isDirectory: true)
         try writeXCFrameworkInfo(at: xcframework, libraryPath: "MyFramework.framework")
-        try fileManager.createDirectory(
-            at: xcframework.appendingPathComponent("ios-arm64_x86_64-simulator/MyFramework.framework", isDirectory: true),
-            withIntermediateDirectories: true
-        )
+        let appSource = root.appendingPathComponent("App.swift")
+        let frameworkSource = root.appendingPathComponent("Framework.swift")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try "import MyFramework\nstruct AppType {}\n".write(to: appSource, atomically: true, encoding: .utf8)
+        try "import MyFramework\npublic struct FrameworkType {}\n".write(to: frameworkSource, atomically: true, encoding: .utf8)
 
-        let appSources = root.appendingPathComponent("App/Sources", isDirectory: true)
-        let frameworkSources = root.appendingPathComponent("Framework/Sources", isDirectory: true)
-        try fileManager.createDirectory(at: appSources, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: frameworkSources, withIntermediateDirectories: true)
-        try "import MyFramework\nstruct AppType {}\n".write(
-            to: appSources.appendingPathComponent("App.swift"),
-            atomically: true,
-            encoding: .utf8
+        let targets = [
+            makeTarget("App", product: .app, root: root, sources: [appSource.path], dependencies: [.target(name: "Framework")]),
+            makeTarget(
+                "Framework",
+                product: .framework,
+                root: root,
+                sources: [frameworkSource.path],
+                dependencies: [.xcframework(path: xcframework.path)]
+            ),
+        ]
+        var generator = BazelGenerator(
+            graph: graph(named: "XCFrameworkImportFixture", root: root, targets: targets),
+            paths: PathContext(root: root, output: root)
         )
-        try "import MyFramework\npublic struct FrameworkType {}\n".write(
-            to: frameworkSources.appendingPathComponent("Framework.swift"),
-            atomically: true,
-            encoding: .utf8
-        )
+        let build = try XCTUnwrap(try generator.render().files["BUILD.bazel"])
+        let appLibrary = try XCTUnwrap(firstRule(named: "AppLib", in: build))
 
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "Fixture",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [appSources.appendingPathComponent("App.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "Framework")]
-                        ),
-                        TuistTarget(
-                            name: "Framework",
-                            product: .framework,
-                            bundleId: "dev.tuist.Framework",
-                            productName: "Framework",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [frameworkSources.appendingPathComponent("Framework.swift").path],
-                            resources: [],
-                            dependencies: [.xcframework(path: xcframework.path)]
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("name = \"AppLib\""))
-        XCTAssertTrue(rootBuild.contains("\":_MyFrameworkImport\""))
-        XCTAssertTrue(rootBuild.contains("name = \"FrameworkLib\""))
-        XCTAssertTrue(rootBuild.contains("deps = [\n        \":_MyFrameworkImport\","))
+        XCTAssertTrue(appLibrary.contains(":_MyFrameworkImport"))
     }
 
-    func testGeneratesSDKAndMixedLanguageAttributes() throws {
+    func testGeneratesSDKLinkOptionsForSwiftTargets() throws {
         let root = URL(fileURLWithPath: "/tmp/SDKFixture")
-        let staticProject = root.appendingPathComponent("Modules/StaticFramework", isDirectory: true)
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "MyTestFramework",
-                            product: .framework,
-                            bundleId: "dev.tuist.MyTestFramework",
-                            productName: "MyTestFramework",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("MyTestFramework/MyTestHelper.swift").path],
-                            resources: [],
-                            dependencies: [.xctest]
-                        ),
-                    ]
-                ),
-                TuistProject(
-                    name: "StaticFramework",
-                    path: staticProject.path,
-                    targets: [
-                        TuistTarget(
-                            name: "StaticFramework",
-                            product: .staticFramework,
-                            bundleId: "dev.tuist.StaticFramework",
-                            productName: "StaticFramework",
-                            projectPath: staticProject.path,
-                            infoPlistPath: nil,
-                            sources: [
-                                staticProject.appendingPathComponent("Sources/FrameworkClass.swift").path,
-                                staticProject.appendingPathComponent("Sources/MyObjcppClass.mm").path,
-                            ],
-                            headers: TuistHeaders(
-                                publicHeaders: [
-                                    staticProject.appendingPathComponent("Sources/MyObjcppClass.h").path,
-                                    staticProject.appendingPathComponent("Sources/StaticFramework.h").path,
-                                ],
-                                privateHeaders: [],
-                                projectHeaders: []
-                            ),
-                            resources: [],
-                            dependencies: [.sdk(name: "libc++.tbd", status: "required")]
-                        ),
-                    ]
-                ),
+        let target = makeTarget(
+            "Framework",
+            product: .framework,
+            root: root,
+            dependencies: [
+                .sdk(name: "CloudKit.framework", status: "optional"),
+                .sdk(name: "libsqlite3.tbd", status: "required"),
+                .xctest,
             ]
         )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        let staticBuild = try XCTUnwrap(rendered["Modules/StaticFramework/BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("infoplists = [\".bazel/InfoPlists/MyTestFramework-Info.plist\"]"))
-        XCTAssertTrue(rootBuild.contains("always_include_developer_search_paths = True"))
-        XCTAssertTrue(rootBuild.contains("\"-framework\""))
-        XCTAssertTrue(rootBuild.contains("\"XCTest\""))
-        XCTAssertTrue(staticBuild.contains("mixed_language_library("))
-        XCTAssertTrue(staticBuild.contains("clang_srcs ="))
-        XCTAssertTrue(staticBuild.contains("Sources/MyObjcppClass.mm"))
-        XCTAssertTrue(staticBuild.contains("hdrs ="))
-        XCTAssertTrue(staticBuild.contains("Sources/MyObjcppClass.h"))
-        XCTAssertTrue(staticBuild.contains("sdk_dylibs ="))
-        XCTAssertTrue(staticBuild.contains("\"c++\""))
-        XCTAssertFalse(staticBuild.contains("umbrella_header ="))
-    }
-
-    func testGeneratesObjCLibraryForClangOnlyTargets() throws {
-        let root = URL(fileURLWithPath: "/tmp/ObjCOnlyFixture")
-        let graph = TuistGraph(
-            name: "ObjCOnlyFixture",
-            projects: [
-                TuistProject(
-                    name: "ObjCOnlyFixture",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "ObjCWrapper",
-                            product: .staticFramework,
-                            bundleId: "dev.tuist.ObjCWrapper",
-                            productName: "ObjCWrapper",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/ObjCWrapper.m").path],
-                            headers: TuistHeaders(
-                                publicHeaders: [root.appendingPathComponent("Sources/ObjCWrapperSupport.h").path],
-                                privateHeaders: [],
-                                projectHeaders: []
-                            ),
-                            resources: [],
-                            dependencies: [.sdk(name: "QuartzCore.framework", status: "required")]
-                        ),
-                    ]
-                ),
-            ]
+        var generator = BazelGenerator(
+            graph: graph(named: "SDKFixture", root: root, targets: [target]),
+            paths: PathContext(root: root, output: root)
         )
+        let build = try XCTUnwrap(try generator.render().files["BUILD.bazel"])
 
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("objc_library("))
-        XCTAssertTrue(rootBuild.contains("srcs = [\n        \"Sources/ObjCWrapper.m\""))
-        XCTAssertTrue(rootBuild.contains("hdrs = [\n        \"Sources/ObjCWrapperSupport.h\""))
-        XCTAssertTrue(rootBuild.contains("sdk_frameworks = [\n        \"QuartzCore\""))
-        XCTAssertTrue(rootBuild.contains("ios_static_framework("))
-        XCTAssertFalse(rootBuild.contains("mixed_language_library("))
+        XCTAssertTrue(build.contains("\"-Wl,-weak_framework,CloudKit\""))
+        XCTAssertTrue(build.contains("\"-lsqlite3\""))
+        XCTAssertTrue(build.contains("always_include_developer_search_paths = True"))
+        XCTAssertTrue(build.contains("\"-framework\""))
+        XCTAssertTrue(build.contains("\"XCTest\""))
     }
 
-    func testOmitsObjCAutoLinkingStubSources() throws {
+    func testFiltersDependenciesBetweenIOSAndMacOS() throws {
+        let root = URL(fileURLWithPath: "/tmp/PlatformFilterFixture")
+        let targets = [
+            makeTarget(
+                "App",
+                product: .app,
+                root: root,
+                dependencies: [
+                    .target(name: "IOSFramework", condition: TuistDependencyCondition(platformFilters: ["ios"])),
+                    .target(name: "MacFramework", condition: TuistDependencyCondition(platformFilters: ["macos"])),
+                ]
+            ),
+            makeTarget(
+                "MacApp",
+                product: .app,
+                root: root,
+                destinations: ["mac"],
+                dependencies: [
+                    .target(name: "IOSFramework", condition: TuistDependencyCondition(platformFilters: ["ios"])),
+                    .target(name: "MacFramework", condition: TuistDependencyCondition(platformFilters: ["macos"])),
+                ]
+            ),
+            makeTarget("IOSFramework", product: .framework, root: root),
+            makeTarget("MacFramework", product: .framework, root: root, destinations: ["mac"]),
+        ]
+        var generator = BazelGenerator(
+            graph: graph(named: "PlatformFilterFixture", root: root, targets: targets),
+            paths: PathContext(root: root, output: root)
+        )
+        let build = try XCTUnwrap(try generator.render().files["BUILD.bazel"])
+        let iosLibrary = try XCTUnwrap(firstRule(named: "AppLib", in: build))
+        let macLibrary = try XCTUnwrap(firstRule(named: "MacAppLib", in: build))
+
+        XCTAssertTrue(iosLibrary.contains(":IOSFrameworkLib"))
+        XCTAssertFalse(iosLibrary.contains(":MacFrameworkLib"))
+        XCTAssertFalse(macLibrary.contains(":IOSFrameworkLib"))
+        XCTAssertTrue(macLibrary.contains(":MacFrameworkLib"))
+    }
+
+    func testGeneratesBundleModuleAccessorForResources() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("tuist-to-bazel-objc-autolink-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("tuist-to-bazel-resources-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
-
-        let sources = root.appendingPathComponent("Sources", isDirectory: true)
-        try fileManager.createDirectory(at: sources, withIntermediateDirectories: true)
-        try """
-        // Trigger auto-linking if MyFramework is never imported in the app.
-        @import MyFramework;
-        """.write(to: sources.appendingPathComponent("GMSEmpty.m"), atomically: true, encoding: .utf8)
-
-        let xcframework = root.appendingPathComponent("Vendor/MyFramework.xcframework", isDirectory: true)
-        try writeXCFrameworkInfo(at: xcframework, libraryPath: "MyFramework.framework")
-        try fileManager.createDirectory(
-            at: xcframework.appendingPathComponent("ios-arm64_x86_64-simulator/MyFramework.framework", isDirectory: true),
-            withIntermediateDirectories: true
-        )
-
-        let graph = TuistGraph(
-            name: "ObjCAutolinkFixture",
-            projects: [
-                TuistProject(
-                    name: "ObjCAutolinkFixture",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "ObjCWrapper",
-                            product: .staticFramework,
-                            bundleId: "dev.tuist.ObjCWrapper",
-                            productName: "ObjCWrapper",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [sources.appendingPathComponent("GMSEmpty.m").path],
-                            headers: TuistHeaders(
-                                publicHeaders: [sources.appendingPathComponent("ObjCWrapperSupport.h").path],
-                                privateHeaders: [],
-                                projectHeaders: []
-                            ),
-                            resources: [],
-                            dependencies: [.xcframework(path: xcframework.path)]
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("objc_library("))
-        XCTAssertTrue(rootBuild.contains("srcs = [\n        \".bazel/Generated/ObjCWrapperObjCStub.m\""))
-        XCTAssertFalse(rootBuild.contains("Sources/GMSEmpty.m"))
-        XCTAssertTrue(rootBuild.contains("\":_MyFrameworkImport\""))
-    }
-
-    func testGeneratesMacOSFrameworkForMacOnlyDestinations() throws {
-        let root = URL(fileURLWithPath: "/tmp/PlatformFixture")
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "Framework",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "Shared-iOS",
-                            product: .framework,
-                            destinations: ["iPhone", "iPad", "macWithiPadDesign"],
-                            bundleId: "dev.tuist.Shared",
-                            productName: "Shared",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/Shared.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "Shared-macOS",
-                            product: .framework,
-                            destinations: ["mac"],
-                            bundleId: "dev.tuist.Shared",
-                            productName: "Shared",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/Shared.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:ios.bzl\", \"ios_framework\")"))
-        XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:macos.bzl\", \"macos_framework\")"))
-        XCTAssertTrue(rootBuild.contains("ios_framework(\n    name = \"Shared-iOS\""))
-        XCTAssertTrue(rootBuild.contains("macos_framework(\n    name = \"Shared-macOS\""))
-        XCTAssertTrue(rootBuild.contains("minimum_os_version = \"14.0\""))
-    }
-
-    func testFiltersMultiplatformDependenciesForSelectedPlatform() throws {
-        let root = URL(fileURLWithPath: "/tmp/MultiplatformFixture")
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            destinations: ["appleWatch", "mac", "iPhone", "iPad"],
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("App/Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .target(
-                                    name: "iOSFramework",
-                                    condition: TuistDependencyCondition(platformFilters: ["ios"])
-                                ),
-                                .target(
-                                    name: "WatchFramework",
-                                    condition: TuistDependencyCondition(platformFilters: ["watchos"])
-                                ),
-                                .target(
-                                    name: "MacStaticFramework",
-                                    condition: TuistDependencyCondition(platformFilters: ["macos"])
-                                ),
-                            ]
-                        ),
-                        TuistTarget(
-                            name: "iOSFramework",
-                            product: .framework,
-                            destinations: ["iPhone", "iPad"],
-                            bundleId: "dev.tuist.iOSFramework",
-                            productName: "iOSFramework",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("iOSFramework/Sources/Framework.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "WatchFramework",
-                            product: .framework,
-                            destinations: ["appleWatch"],
-                            bundleId: "dev.tuist.WatchFramework",
-                            productName: "WatchFramework",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("WatchFramework/Sources/Framework.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "MacStaticFramework",
-                            product: .staticFramework,
-                            destinations: ["mac"],
-                            bundleId: "dev.tuist.MacStaticFramework",
-                            productName: "MacStaticFramework",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("MacStaticFramework/Sources/Framework.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("ios_application(\n    name = \"App\""))
-        XCTAssertFalse(rootBuild.contains("watchos_application(\n    name = \"App\""))
-        XCTAssertTrue(rootBuild.contains("macos_static_framework(\n    name = \"MacStaticFramework\""))
-
-        let appLib = try XCTUnwrap(firstRule(named: "AppLib", in: rootBuild))
-        XCTAssertTrue(appLib.contains("\":iOSFrameworkLib\""))
-        XCTAssertFalse(appLib.contains("WatchFrameworkLib"))
-        XCTAssertFalse(appLib.contains("MacStaticFrameworkLib"))
-
-        let macStaticFramework = try XCTUnwrap(
-            rootBuild.components(separatedBy: "\n\n").first { block in
-                block.hasPrefix("macos_static_framework(") && block.contains("name = \"MacStaticFramework\"")
-            }
-        )
-        XCTAssertTrue(macStaticFramework.contains("minimum_os_version = \"14.0\""))
-    }
-
-    func testGeneratesWatchApplicationEmbeddingRules() throws {
-        let root = URL(fileURLWithPath: "/tmp/WatchAppFixture")
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            destinations: ["iPhone", "iPad"],
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("App/Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .target(name: "WatchApp"),
-                                .target(name: "Framework_a_ios"),
-                            ]
-                        ),
-                        TuistTarget(
-                            name: "Framework_a_ios",
-                            product: .framework,
-                            destinations: ["iPhone", "iPad"],
-                            bundleId: "dev.tuist.framework.a",
-                            productName: "FrameworkA",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "Framework_a_watchos",
-                            product: .framework,
-                            destinations: ["appleWatch"],
-                            bundleId: "dev.tuist.framework.a",
-                            productName: "FrameworkA",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "WatchApp",
-                            product: .app,
-                            destinations: ["appleWatch"],
-                            bundleId: "dev.tuist.App.watchkitapp",
-                            productName: "WatchApp",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            infoPlistEntries: [
-                                "CFBundleVersion": .string("1.0"),
-                                "WKCompanionAppBundleIdentifier": .string("dev.tuist.App"),
-                            ],
-                            sources: [root.appendingPathComponent("WatchApp/Sources/WatchApp.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .target(name: "WatchWidgetExtension"),
-                                .target(name: "Framework_a_watchos"),
-                            ]
-                        ),
-                        TuistTarget(
-                            name: "WatchWidgetExtension",
-                            product: .appExtension,
-                            destinations: ["appleWatch"],
-                            bundleId: "dev.tuist.App.watchkitapp.widgetExtension",
-                            productName: "WatchWidgetExtension",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            infoPlistEntries: [
-                                "NSExtension": .dictionary([
-                                    "NSExtensionPointIdentifier": .string("com.apple.widgetkit-extension"),
-                                ]),
-                            ],
-                            sources: [root.appendingPathComponent("WatchWidgetExtension/Sources/Widget.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "Framework_a_watchos")]
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
-
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("watch_application = \":WatchApp\""))
-        XCTAssertTrue(rootBuild.contains("watchos_application(\n    name = \"WatchApp\""))
-        XCTAssertTrue(rootBuild.contains("watchos_extension(\n    name = \"WatchWidgetExtension\""))
-        XCTAssertTrue(rootBuild.contains("application_extension = True"))
-        XCTAssertTrue(rootBuild.contains("bundle_name = \"FrameworkA\""))
-        XCTAssertFalse(rootBuild.contains("Framework_a_iosLib"))
-        XCTAssertFalse(rootBuild.contains("Framework_a_watchosLib"))
-
-        let appLib = try XCTUnwrap(firstRule(named: "AppLib", in: rootBuild))
-        XCTAssertFalse(appLib.contains("WatchAppLib"))
-
-        let watchAppPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/WatchApp-Info.plist"])
-        XCTAssertTrue(watchAppPlist.contains("WKCompanionAppBundleIdentifier"))
-        let extensionPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/WatchWidgetExtension-Info.plist"])
-        XCTAssertTrue(extensionPlist.contains("<key>CFBundleVersion</key>"))
-        XCTAssertTrue(extensionPlist.contains("<string>1.0</string>"))
-    }
-
-    func testGeneratesBundleModuleAccessorWhenResourceSourceUsesBundleModule() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("tuist-to-bazel-buildable-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let source = root.appendingPathComponent("Modules/Framework/Sources/Provider.swift")
-        let resources = root.appendingPathComponent("Modules/Framework/Resources", isDirectory: true)
-        let assets = resources.appendingPathComponent("Assets.xcassets", isDirectory: true)
-        let imageSet = assets.appendingPathComponent("logo.imageset", isDirectory: true)
-        let nested = resources.appendingPathComponent("Nested.bundle", isDirectory: true)
+        let source = root.appendingPathComponent("Sources/Provider.swift")
+        let assets = root.appendingPathComponent("Resources/Assets.xcassets/logo.imageset", isDirectory: true)
         try fileManager.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: imageSet, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: nested, withIntermediateDirectories: true)
-        try """
-        import Foundation
-
-        enum Provider {
-            static let bundle: Bundle = .module
-        }
-        """.write(to: source, atomically: true, encoding: .utf8)
-        try #"{"images":[],"info":{"author":"xcode","version":1}}"#.write(
-            to: imageSet.appendingPathComponent("Contents.json"),
+        try fileManager.createDirectory(at: assets, withIntermediateDirectories: true)
+        try "import Foundation\nenum Provider { static let bundle: Bundle = .module }\n".write(
+            to: source,
             atomically: true,
             encoding: .utf8
         )
-        let rootInfo = try PropertyListSerialization.data(
-            fromPropertyList: ["CFBundleName": "Framework"],
-            format: .xml,
-            options: 0
+        try #"{"images":[],"info":{"author":"xcode","version":1}}"#.write(
+            to: assets.appendingPathComponent("Contents.json"),
+            atomically: true,
+            encoding: .utf8
         )
-        try rootInfo.write(to: resources.appendingPathComponent("Info.plist"))
-        let nestedInfo = try PropertyListSerialization.data(
-            fromPropertyList: ["CFBundleName": "Nested"],
-            format: .xml,
-            options: 0
-        )
-        try nestedInfo.write(to: nested.appendingPathComponent("Info.plist"))
 
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "Framework",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "Framework",
-                            product: .framework,
-                            bundleId: "dev.tuist.Framework",
-                            productName: "Framework",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [source.path],
-                            resources: [TuistResource(path: resources.path, kind: .file, tags: [])],
-                            dependencies: []
-                        ),
-                    ]
+        let target = makeTarget(
+            "Framework",
+            product: .framework,
+            root: root,
+            sources: [source.path],
+            resources: [
+                TuistResource(
+                    path: root.appendingPathComponent("Resources/Assets.xcassets").path,
+                    kind: .file,
+                    tags: []
                 ),
             ]
         )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+        var generator = BazelGenerator(
+            graph: graph(named: "ResourcesFixture", root: root, targets: [target]),
+            paths: PathContext(root: root, output: root)
+        )
         let rendered = try generator.render().files
+        let accessor = try XCTUnwrap(rendered[".bazel/Generated/FrameworkResourceAccessors.swift"])
 
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains(".bazel/Generated/FrameworkResourceAccessors.swift"))
-        let accessors = try XCTUnwrap(rendered[".bazel/Generated/FrameworkResourceAccessors.swift"])
-        XCTAssertTrue(accessors.contains("static var module: Bundle"))
-        XCTAssertEqual(accessors.components(separatedBy: "public enum Info").count - 1, 1)
+        XCTAssertTrue(try XCTUnwrap(rendered["BUILD.bazel"]).contains(".bazel/Generated/FrameworkResourceAccessors.swift"))
+        XCTAssertTrue(accessor.contains("static var module: Bundle"))
     }
 
-    func testGeneratedExtensionInfoPlistsInheritHostVersions() throws {
+    func testGeneratedExtensionInfoPlistInheritsHostVersions() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("tuist-to-bazel-extension-versions-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-
-        let appOnePlist = root.appendingPathComponent("App-Info.plist")
-        let appTwoPlist = root.appendingPathComponent("AppWithSharedExtension-Info.plist")
+        let appPlist = root.appendingPathComponent("App-Info.plist")
         try PropertyListSerialization.data(
-            fromPropertyList: [
-                "CFBundleVersion": "7",
-                "CFBundleShortVersionString": "3.2",
-            ],
+            fromPropertyList: ["CFBundleVersion": "7", "CFBundleShortVersionString": "3.2"],
             format: .xml,
             options: 0
-        ).write(to: appOnePlist)
-        try PropertyListSerialization.data(
-            fromPropertyList: [
-                "CFBundleVersion": "9",
-                "CFBundleShortVersionString": "4.1",
-            ],
-            format: .xml,
-            options: 0
-        ).write(to: appTwoPlist)
+        ).write(to: appPlist)
 
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: appOnePlist.path,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "SharedExtension")]
-                        ),
-                        TuistTarget(
-                            name: "AppWithSharedExtension",
-                            product: .app,
-                            bundleId: "dev.tuist.App2",
-                            productName: "AppWithSharedExtension",
-                            projectPath: root.path,
-                            infoPlistPath: appTwoPlist.path,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [.target(name: "SharedExtension")]
-                        ),
-                        TuistTarget(
-                            name: "SharedExtension",
-                            product: .appExtension,
-                            bundleId: "dev.tuist.App.SharedExtension",
-                            productName: "SharedExtension",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            infoPlistEntries: [
-                                "NSExtension": .dictionary([
-                                    "NSExtensionPointIdentifier": .string("com.apple.usernotifications.service"),
-                                ]),
-                            ],
-                            sources: [root.appendingPathComponent("SharedExtension/Extension.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                    ]
-                ),
-            ]
+        let targets = [
+            makeTarget(
+                "App",
+                product: .app,
+                root: root,
+                infoPlistPath: appPlist.path,
+                dependencies: [.target(name: "NotificationExtension")]
+            ),
+            makeTarget(
+                "NotificationExtension",
+                product: .appExtension,
+                root: root,
+                bundleId: "dev.tuist.App.NotificationExtension",
+                infoPlistEntries: [
+                    "NSExtension": .dictionary([
+                        "NSExtensionPointIdentifier": .string("com.apple.usernotifications.service"),
+                    ]),
+                ]
+            ),
+        ]
+        var generator = BazelGenerator(
+            graph: graph(named: "ExtensionFixture", root: root, targets: targets),
+            paths: PathContext(root: root, output: root)
         )
-
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
         let rendered = try generator.render().files
+        let plist = try XCTUnwrap(rendered[".bazel/InfoPlists/NotificationExtension-Info.plist"])
 
-        let originalExtensionPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/SharedExtension-Info.plist"])
-        XCTAssertTrue(originalExtensionPlist.contains("<key>CFBundleVersion</key>\n\t<string>7</string>"))
-        XCTAssertTrue(originalExtensionPlist.contains("<key>CFBundleShortVersionString</key>\n\t<string>3.2</string>"))
-
-        let wrapperPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/_AppWithSharedExtension_SharedExtension-Info.plist"])
-        XCTAssertTrue(wrapperPlist.contains("<key>CFBundleVersion</key>\n\t<string>9</string>"))
-        XCTAssertTrue(wrapperPlist.contains("<key>CFBundleShortVersionString</key>\n\t<string>4.1</string>"))
+        XCTAssertTrue(plist.contains("<key>CFBundleVersion</key>\n\t<string>7</string>"))
+        XCTAssertTrue(plist.contains("<key>CFBundleShortVersionString</key>\n\t<string>3.2</string>"))
+        XCTAssertTrue(try XCTUnwrap(rendered["BUILD.bazel"]).contains("ios_extension("))
     }
 
-    func testGeneratesExtensionProductRulesAndPlists() throws {
-        let root = URL(fileURLWithPath: "/tmp/ExtensionFixture")
-        let graph = TuistGraph(
-            name: "Fixture",
-            projects: [
-                TuistProject(
-                    name: "App",
-                    path: root.path,
-                    targets: [
-                        TuistTarget(
-                            name: "App",
-                            product: .app,
-                            bundleId: "dev.tuist.App",
-                            productName: "App",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .target(name: "NotificationServiceExtension"),
-                                .target(name: "AppIntentExtension"),
-                                .target(name: "StickersPackExtension"),
-                            ]
-                        ),
-                        TuistTarget(
-                            name: "AppWithMessagesExtension",
-                            product: .app,
-                            bundleId: "dev.tuist.App2",
-                            productName: "AppWithMessagesExtension",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            sources: [root.appendingPathComponent("Sources/App.swift").path],
-                            resources: [],
-                            dependencies: [
-                                .target(name: "MessageExtension"),
-                                .target(name: "NotificationServiceExtension"),
-                            ]
-                        ),
-                        TuistTarget(
-                            name: "NotificationServiceExtension",
-                            product: .appExtension,
-                            bundleId: "dev.tuist.App.NotificationServiceExtension",
-                            productName: "NotificationServiceExtension",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            infoPlistEntries: [
-                                "CFBundleDisplayName": .string("$(PRODUCT_NAME)"),
-                                "NSExtension": .dictionary([
-                                    "NSExtensionPointIdentifier": .string("com.apple.usernotifications.service"),
-                                    "NSExtensionPrincipalClass": .string("$(PRODUCT_MODULE_NAME).NotificationService"),
-                                ]),
-                            ],
-                            sources: [root.appendingPathComponent("NotificationServiceExtension/NotificationService.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "AppIntentExtension",
-                            product: .extensionKitExtension,
-                            bundleId: "dev.tuist.App.AppIntentExtension",
-                            productName: "AppIntentExtension",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            infoPlistEntries: [
-                                "EXAppExtensionAttributes": .dictionary([
-                                    "EXExtensionPointIdentifier": .string("com.apple.appintents-extension"),
-                                ]),
-                            ],
-                            sources: [root.appendingPathComponent("AppIntentExtension/Sources/AppIntent.swift").path],
-                            resources: [],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "MessageExtension",
-                            product: .messagesExtension,
-                            bundleId: "dev.tuist.App2.MessageExtension",
-                            productName: "MessageExtension",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            infoPlistEntries: [
-                                "NSExtension": .dictionary([
-                                    "NSExtensionMainStoryboard": .string("MainInterface"),
-                                    "NSExtensionPointIdentifier": .string("com.apple.message-payload-provider"),
-                                ]),
-                            ],
-                            sources: [root.appendingPathComponent("MessageExtension/Sources/MessagesViewController.swift").path],
-                            resources: [
-                                TuistResource(
-                                    path: root.appendingPathComponent("MessageExtension/Resources/Base.lproj/MainInterface.storyboard").path,
-                                    kind: .file,
-                                    tags: []
-                                ),
-                            ],
-                            dependencies: []
-                        ),
-                        TuistTarget(
-                            name: "StickersPackExtension",
-                            product: .stickerPackExtension,
-                            bundleId: "dev.tuist.App.StickersPackExtension",
-                            productName: "StickersPackExtension",
-                            projectPath: root.path,
-                            infoPlistPath: nil,
-                            infoPlistEntries: [
-                                "NSExtension": .dictionary([
-                                    "NSExtensionPointIdentifier": .string("com.apple.message-payload-provider"),
-                                ]),
-                            ],
-                            sources: [],
-                            resources: [
-                                TuistResource(
-                                    path: root.appendingPathComponent("StickersPackExtension/Stickers.xcassets").path,
-                                    kind: .file,
-                                    tags: []
-                                ),
-                            ],
-                            dependencies: []
-                        ),
-                    ]
+    func testRejectsRemovedFeaturesBeforeRendering() throws {
+        let root = URL(fileURLWithPath: "/tmp/UnsupportedFixture")
+        let cases: [(target: TuistTarget, message: String)] = [
+            (makeTarget("AppClip", product: .unsupported, root: root), "unsupported product"),
+            (makeTarget("WatchApp", product: .app, root: root, destinations: ["appleWatch"]), "unsupported destination"),
+            (
+                makeTarget("Mixed", product: .framework, root: root, sources: [root.appendingPathComponent("Mixed.m").path]),
+                "non-Swift source"
+            ),
+            (
+                makeTarget("Headers", product: .framework, root: root, headers: [root.appendingPathComponent("Public.h").path]),
+                "contains header"
+            ),
+            (
+                makeTarget(
+                    "CoreData",
+                    product: .app,
+                    root: root,
+                    coreDataModelPaths: [root.appendingPathComponent("Users.xcdatamodeld").path]
                 ),
-            ]
+                "Core Data generation is not supported"
+            ),
+            (
+                makeTarget(
+                    "LegacyBinary",
+                    product: .app,
+                    root: root,
+                    dependencies: [.unsupported("checked-in framework at Vendor/Legacy.framework")]
+                ),
+                "use an XCFramework instead"
+            ),
+        ]
+
+        for testCase in cases {
+            var generator = BazelGenerator(
+                graph: graph(named: "UnsupportedFixture", root: root, targets: [testCase.target]),
+                paths: PathContext(root: root, output: root)
+            )
+            XCTAssertThrowsError(try generator.render()) { error in
+                XCTAssertTrue(String(describing: error).contains(testCase.message))
+            }
+        }
+
+        var localPackageGenerator = BazelGenerator(
+            graph: TuistGraph(
+                name: "LocalPackageFixture",
+                projects: [TuistProject(name: "App", path: root.path, targets: [])],
+                localSwiftPackagePaths: [root.appendingPathComponent("Packages/Local").path]
+            ),
+            paths: PathContext(root: root, output: root)
         )
+        XCTAssertThrowsError(try localPackageGenerator.render()) { error in
+            XCTAssertTrue(String(describing: error).contains("local Swift package conversion is not supported"))
+        }
+    }
 
-        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
-        let rendered = try generator.render().files
+    private func graph(named name: String, root: URL, targets: [TuistTarget]) -> TuistGraph {
+        TuistGraph(
+            name: name,
+            projects: [TuistProject(name: name, path: root.path, targets: targets)]
+        )
+    }
 
-        let rootBuild = try XCTUnwrap(rendered["BUILD.bazel"])
-        XCTAssertTrue(rootBuild.contains("ios_extension("))
-        XCTAssertTrue(rootBuild.contains("extensionkit_extension = True"))
-        XCTAssertTrue(rootBuild.contains("ios_imessage_extension("))
-        XCTAssertTrue(rootBuild.contains("ios_sticker_pack_extension("))
-        XCTAssertTrue(rootBuild.contains("name = \"_AppWithMessagesExtension_NotificationServiceExtension\""))
-        XCTAssertTrue(rootBuild.contains("bundle_id = \"dev.tuist.App2.NotificationServiceExtension\""))
-        XCTAssertTrue(rootBuild.contains("executable_name = \"NotificationServiceExtension\""))
-        XCTAssertTrue(rootBuild.contains("\":_AppWithMessagesExtension_NotificationServiceExtension\""))
-
-        let notificationPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/NotificationServiceExtension-Info.plist"])
-        XCTAssertTrue(notificationPlist.contains("NotificationServiceExtension.NotificationService"))
-        let wrapperPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/_AppWithMessagesExtension_NotificationServiceExtension-Info.plist"])
-        XCTAssertTrue(wrapperPlist.contains("dev.tuist.App2.NotificationServiceExtension"))
-        let appIntentPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/AppIntentExtension-Info.plist"])
-        XCTAssertTrue(appIntentPlist.contains("com.apple.appintents-extension"))
+    private func makeTarget(
+        _ name: String,
+        product: ProductType,
+        root: URL,
+        destinations: [String] = ["iPhone", "iPad"],
+        bundleId: String? = nil,
+        infoPlistPath: String? = nil,
+        infoPlistEntries: [String: PlistValue] = [:],
+        sources: [String]? = nil,
+        headers: [String] = [],
+        coreDataModelPaths: [String] = [],
+        resources: [TuistResource] = [],
+        dependencies: [TuistDependency] = []
+    ) -> TuistTarget {
+        TuistTarget(
+            name: name,
+            product: product,
+            destinations: destinations,
+            bundleId: bundleId ?? "dev.tuist.\(name)",
+            productName: name,
+            projectPath: root.path,
+            infoPlistPath: infoPlistPath,
+            infoPlistEntries: infoPlistEntries,
+            sources: sources ?? [root.appendingPathComponent("Sources/\(name).swift").path],
+            headers: headers,
+            coreDataModelPaths: coreDataModelPaths,
+            resources: resources,
+            dependencies: dependencies
+        )
     }
 
     private func firstRule(named name: String, in buildFile: String) -> String? {

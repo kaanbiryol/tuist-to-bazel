@@ -15,7 +15,7 @@ struct TuistGraphParser {
         return TuistGraph(
             name: name,
             projects: try parseProjects(projectsValue),
-            localSwiftPackages: parseLocalSwiftPackages(rootObject["packages"]).map(TuistLocalSwiftPackage.init(path:)),
+            localSwiftPackagePaths: parseLocalSwiftPackages(rootObject["packages"]),
             remoteSwiftPackages: parseRemoteSwiftPackages(rootObject["packages"])
         )
     }
@@ -85,7 +85,7 @@ struct TuistGraphParser {
             infoPlistEntries: settingsInfoPlistEntries.merging(explicitInfoPlistEntries) { _, explicit in explicit },
             sources: orderedUnique(parsePathArray(object["sources"]) + buildableFolderFiles.filter(isBuildableSource)),
             headers: parseHeaders(object["headers"]),
-            coreDataModels: parseCoreDataModels(object["coreDataModels"]),
+            coreDataModelPaths: parseCoreDataModelPaths(object["coreDataModels"]),
             resources: parseResources(object["resources"]) + buildableFolderFiles.filter(isBuildableResource).map {
                 TuistResource(path: $0, kind: .file, tags: [])
             },
@@ -235,26 +235,14 @@ struct TuistGraphParser {
         }
     }
 
-    private func parseCoreDataModels(_ value: JSONValue?) -> [TuistCoreDataModel] {
-        guard let models = value?.arrayValue else { return [] }
-        return models.compactMap { element in
-            guard let path = element["path"]?.stringValue else {
-                return nil
-            }
-            return TuistCoreDataModel(
-                path: path,
-                currentVersion: element["currentVersion"]?.stringValue,
-                versions: parseStringArray(element["versions"])
-            )
-        }
+    private func parseCoreDataModelPaths(_ value: JSONValue?) -> [String] {
+        value?.arrayValue?.compactMap { $0["path"]?.stringValue } ?? []
     }
 
-    private func parseHeaders(_ value: JSONValue?) -> TuistHeaders {
-        TuistHeaders(
-            publicHeaders: parseHeaderGroup(value?["public"]),
-            privateHeaders: parseHeaderGroup(value?["private"]),
-            projectHeaders: parseHeaderGroup(value?["project"])
-        )
+    private func parseHeaders(_ value: JSONValue?) -> [String] {
+        parseHeaderGroup(value?["public"])
+            + parseHeaderGroup(value?["private"])
+            + parseHeaderGroup(value?["project"])
     }
 
     private func parseHeaderGroup(_ value: JSONValue?) -> [String] {
@@ -350,17 +338,13 @@ struct TuistGraphParser {
                 return .project(target: target, path: path, condition: parseDependencyCondition(project["condition"]))
             }
             if let framework = element["framework"]?.objectValue, let path = framework["path"]?.stringValue {
-                return .framework(path: path)
+                return .unsupported("checked-in framework at \(path)")
             }
             if let xcframework = element["xcframework"]?.objectValue, let path = xcframework["path"]?.stringValue {
                 return .xcframework(path: path)
             }
             if let library = element["library"]?.objectValue, let path = library["path"]?.stringValue {
-                return .library(
-                    path: path,
-                    publicHeaders: library["publicHeaders"]?.stringValue,
-                    swiftModuleMap: library["swiftModuleMap"]?.stringValue
-                )
+                return .unsupported("checked-in library at \(path)")
             }
             if let package = element["package"]?.objectValue, let product = package["product"]?.stringValue {
                 let rawType = package["type"]?.stringValue ?? ""

@@ -54,7 +54,7 @@ extension BazelGenerator {
 
     func supportsGeneratedDefaultInfoPlist(_ product: ProductType) -> Bool {
         switch product {
-        case .app, .appClip, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension:
+        case .app, .appExtension, .framework:
             true
         case .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             false
@@ -134,7 +134,7 @@ extension BazelGenerator {
         }
         let identity = targetIdentity(target)
         let hostApps = graph.projects.flatMap(\.targets)
-            .filter { $0.product == .app || $0.product == .appClip }
+            .filter { $0.product == .app }
 
         return hostApps
             .sorted { $0.name < $1.name }
@@ -158,24 +158,9 @@ extension BazelGenerator {
             .first
     }
 
-    func appClipHostApp(for appClip: TuistTarget) -> TuistTarget? {
-        guard appClip.product == .appClip else {
-            return nil
-        }
-        let identity = targetIdentity(appClip)
-        return graph.projects.flatMap(\.targets)
-            .filter { $0.product == .app }
-            .sorted { $0.name < $1.name }
-            .first { app in
-                app.dependencies.contains { dependency in
-                    resolveTargetDependency(dependency).map(targetIdentity) == identity
-                }
-            }
-    }
-
     func packageType(for product: ProductType) -> String {
         switch product {
-        case .app, .appClip:
+        case .app:
             "APPL"
         case .framework:
             "FMWK"

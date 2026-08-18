@@ -3,14 +3,12 @@ import Foundation
 struct BazelDependencyResolver {
     typealias ApplePlatform = BazelGenerator.ApplePlatform
     typealias ResolvedDependencies = BazelGenerator.ResolvedDependencies
-    typealias SDKDependency = BazelGenerator.SDKDependency
 
     let graph: TuistGraph
     let paths: PathContext
     let resourceAccessors: ResourceAccessorGenerator
     let targetsByName: [String: TuistTarget]
     let targetsByPathAndName: [String: TuistTarget]
-    let localSwiftPackageProductLabels: [String: BazelLabel]
     let remoteSwiftPackageProductLabels: [String: BazelLabel]
     var warnings: [String] = []
 
@@ -26,15 +24,13 @@ struct BazelDependencyResolver {
                 switch dependencyTarget.product {
                 case .macro:
                     result.pluginDeps.append(try productLabel(for: dependencyTarget))
-                case .framework where target.product == .app || target.product == .appClip || Self.isExtensionProduct(target.product):
+                case .framework where target.product == .app || Self.isExtensionProduct(target.product):
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
                     }
                     result.frameworkDeps.append(try productLabel(for: dependencyTarget))
-                case _ where (target.product == .app || target.product == .appClip) && Self.isExtensionProduct(dependencyTarget.product):
-                    result.extensionDeps.append(try embeddedExtensionLabel(for: dependencyTarget, app: target))
-                case .appClip where target.product == .app:
-                    result.appClipDeps.append(try productLabel(for: dependencyTarget))
+                case _ where target.product == .app && Self.isExtensionProduct(dependencyTarget.product):
+                    result.extensionDeps.append(try productLabel(for: dependencyTarget))
                 case .bundle:
                     if let resource = try resourceLabel(for: dependencyTarget) {
                         result.resourceDeps.append(resource)
@@ -44,17 +40,6 @@ struct BazelDependencyResolver {
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
                     }
-                case .appClip where target.product == .uiTests:
-                    if let hostApp = appClipHostApp(for: dependencyTarget) {
-                        result.testHost = try productLabel(for: hostApp)
-                    } else {
-                        warnings.append("ui test target \(target.name) depends on app clip \(dependencyTarget.name), but no host app embeds it")
-                    }
-                    if let library = try libraryLabel(for: dependencyTarget) {
-                        result.codeDeps.append(library)
-                    }
-                case .app where target.product == .app && targetPlatform == .ios && platform(for: dependencyTarget) == .watchOS:
-                    result.watchApplication = try productLabel(for: dependencyTarget)
                 default:
                     if let library = try libraryLabel(for: dependencyTarget) {
                         result.codeDeps.append(library)
@@ -66,34 +51,18 @@ struct BazelDependencyResolver {
 
             switch dependency {
             case let .package(product, kind):
-                guard kind == .runtime else {
-                    continue
-                }
-                if let label = localSwiftPackageProductLabels[product] {
-                    result.codeDeps.append(label)
-                } else if let label = remoteSwiftPackageProductLabels[product] {
-                    result.codeDeps.append(label)
+                if let label = remoteSwiftPackageProductLabels[product] {
+                    switch kind {
+                    case .runtime:
+                        result.codeDeps.append(label)
+                    case .plugin:
+                        result.pluginDeps.append(label)
+                    }
                 } else {
                     warnings.append("package dependency \(product) on target \(target.name) is not generated yet")
                 }
             case let .sdk(name, status):
-                let sdkDependency = sdkDependency(for: name, status: status)
-                result.sdkFrameworks.append(contentsOf: sdkDependency.sdkFrameworks)
-                result.weakSdkFrameworks.append(contentsOf: sdkDependency.weakSdkFrameworks)
-                result.sdkDylibs.append(contentsOf: sdkDependency.sdkDylibs)
-                result.linkopts.append(contentsOf: sdkDependency.linkopts)
-            case let .framework(path):
-                result.codeDeps.append(BazelLabel(
-                    package: binaryImportPackage(for: path, consumingPackage: packagePath),
-                    name: BazelBinaryImportRenderer.name(for: path)
-                ))
-            case let .library(path, _, swiftModuleMap):
-                if let swiftModuleMap {
-                    let libraryImport = BazelLibraryImport(path: path, swiftModuleMap: swiftModuleMap)
-                    result.codeDeps.append(BazelLabel(package: "", name: libraryImport.importName))
-                } else {
-                    warnings.append("binary dependency \(path) on target \(target.name) is not generated yet")
-                }
+                result.linkopts.append(contentsOf: sdkLinkopts(for: name, status: status))
             case let .xcframework(path):
                 result.codeDeps.append(BazelLabel(
                     package: binaryImportPackage(for: path, consumingPackage: packagePath),
@@ -104,6 +73,8 @@ struct BazelDependencyResolver {
                 result.linkopts.append(contentsOf: ["-framework", "XCTest"])
             case .target, .project:
                 warnings.append("unresolved target dependency on \(target.name)")
+            case let .unsupported(description):
+                warnings.append("unsupported dependency on \(target.name): \(description)")
             }
         }
 
@@ -115,13 +86,10 @@ struct BazelDependencyResolver {
         result.codeDeps.append(contentsOf: try binaryImportDepsReferencedBySources(for: target, packagePath: packagePath))
         result.codeDeps = Array(Set(result.codeDeps)).sorted()
         result.pluginDeps = Array(Set(result.pluginDeps)).sorted()
-        result.appClipDeps = Array(Set(result.appClipDeps)).sorted()
         result.frameworkDeps = Array(Set(result.frameworkDeps)).sorted()
         result.extensionDeps = Array(Set(result.extensionDeps)).sorted()
         result.resourceDeps = Array(Set(result.resourceDeps)).sorted()
-        result.sdkFrameworks = Array(Set(result.sdkFrameworks)).sorted()
-        result.weakSdkFrameworks = Array(Set(result.weakSdkFrameworks)).sorted()
-        result.sdkDylibs = Array(Set(result.sdkDylibs)).sorted()
+        result.linkopts = orderedUnique(result.linkopts)
         return result
     }
 
@@ -155,7 +123,7 @@ struct BazelDependencyResolver {
                 }
                 labels.append(contentsOf: try staticRuntimeResourceLabels(for: dependencyTarget, visited: &visited))
             }
-        case .app, .appClip, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension, .macro, .unitTests, .uiTests, .unsupported:
+        case .app, .appExtension, .framework, .macro, .unitTests, .uiTests, .unsupported:
             break
         }
 
@@ -228,8 +196,6 @@ struct BazelDependencyResolver {
                 return
             }
             result.formUnion(Self.captures(pattern: #"(?m)^\s*(?:@_exported\s+)?import\s+(?:(?:class|struct|enum|protocol|func|var|typealias)\s+)?([A-Za-z_][A-Za-z0-9_]*)"#, in: content))
-            result.formUnion(Self.captures(pattern: #"@import\s+([A-Za-z_][A-Za-z0-9_]*)"#, in: content))
-            result.formUnion(Self.captures(pattern: #"#import\s+<([A-Za-z_][A-Za-z0-9_]*)/"#, in: content))
         }
     }
 
@@ -247,63 +213,13 @@ struct BazelDependencyResolver {
         }
     }
 
-    static func firstMatch(pattern: String, in value: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return nil
-        }
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
-        guard let match = regex.firstMatch(in: value, range: range),
-              let matchRange = Range(match.range, in: value) else {
-            return nil
-        }
-        return String(value[matchRange])
-    }
-
-    static func replacingMatches(
-        pattern: String,
-        in value: String,
-        options: NSRegularExpression.Options = [],
-        with replacement: String
-    ) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
-            return value
-        }
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
-        return regex.stringByReplacingMatches(in: value, range: range, withTemplate: replacement)
-    }
-
     static func isExtensionProduct(_ product: ProductType) -> Bool {
         switch product {
-        case .appExtension, .extensionKitExtension, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension:
+        case .appExtension:
             true
-        case .app, .appClip, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
+        case .app, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             false
         }
-    }
-
-    func embeddedExtensionLabel(for extensionTarget: TuistTarget, app: TuistTarget) throws -> BazelLabel {
-        if requiresAppSpecificExtensionBundle(extensionTarget, app: app) {
-            return BazelLabel(
-                package: try paths.packagePath(for: extensionTarget.projectPath),
-                name: appSpecificExtensionName(for: extensionTarget, app: app)
-            )
-        }
-        return try productLabel(for: extensionTarget)
-    }
-
-    func requiresAppSpecificExtensionBundle(_ extensionTarget: TuistTarget, app: TuistTarget) -> Bool {
-        let appBundleId = app.bundleId ?? defaultBundleId(for: app)
-        let extensionBundleId = extensionTarget.bundleId ?? defaultBundleId(for: extensionTarget)
-        return !extensionBundleId.hasPrefix("\(appBundleId).")
-    }
-
-    func appSpecificExtensionName(for extensionTarget: TuistTarget, app: TuistTarget) -> String {
-        "_\(sanitizedModuleName(app.name))_\(sanitizedModuleName(extensionTarget.name))"
-    }
-
-    func appSpecificExtensionBundleId(for extensionTarget: TuistTarget, app: TuistTarget) -> String {
-        let appBundleId = app.bundleId ?? defaultBundleId(for: app)
-        return "\(appBundleId).\(sanitizedModuleName(extensionTarget.productName))"
     }
 
     func resolveTargetDependency(_ dependency: TuistDependency) -> TuistTarget? {
@@ -312,7 +228,7 @@ struct BazelDependencyResolver {
             targetsByName[name]
         case let .project(target, path, _):
             targetsByPathAndName[Self.indexKey(path: path, name: target)] ?? targetsByName[target]
-        case .framework, .xcframework, .library, .package(_, _), .sdk, .xctest:
+        case .xcframework, .package(_, _), .sdk, .xctest, .unsupported:
             nil
         }
     }
@@ -330,51 +246,32 @@ struct BazelDependencyResolver {
             condition
         case let .project(_, _, condition):
             condition
-        case .framework, .xcframework, .library, .package, .sdk, .xctest:
+        case .xcframework, .package, .sdk, .xctest, .unsupported:
             nil
         }
     }
 
-    func sdkDependency(for name: String, status: String?) -> SDKDependency {
-        var result = SDKDependency()
+    func sdkLinkopts(for name: String, status: String?) -> [String] {
         if name.hasSuffix(".framework") {
             let framework = String(name.dropLast(".framework".count))
             if status == "optional" {
-                result.weakSdkFrameworks.append(framework)
-                result.linkopts.append("-Wl,-weak_framework,\(framework)")
-            } else {
-                result.sdkFrameworks.append(framework)
-                result.linkopts.append(contentsOf: ["-framework", framework])
+                return ["-Wl,-weak_framework,\(framework)"]
             }
-            return result
+            return ["-framework", framework]
         }
 
         if name.hasSuffix(".tbd") {
             let library = String(name.dropLast(".tbd".count))
             let linkerName = library.hasPrefix("lib") ? String(library.dropFirst(3)) : library
-            result.sdkDylibs.append(linkerName)
-            result.linkopts.append("-l\(linkerName)")
-            return result
+            return ["-l\(linkerName)"]
         }
 
-        result.sdkFrameworks.append(name)
-        result.linkopts.append(contentsOf: ["-framework", name])
-        return result
+        return ["-framework", name]
     }
 
-    func appClipHostApp(for appClip: TuistTarget) -> TuistTarget? {
-        guard appClip.product == .appClip else {
-            return nil
-        }
-        let identity = Self.targetIdentity(appClip)
-        return graph.projects.flatMap(\.targets)
-            .filter { $0.product == .app }
-            .sorted { $0.name < $1.name }
-            .first { app in
-                app.dependencies.contains { dependency in
-                    resolveTargetDependency(dependency).map(Self.targetIdentity) == identity
-                }
-            }
+    func orderedUnique<T: Hashable>(_ values: [T]) -> [T] {
+        var seen: Set<T> = []
+        return values.filter { seen.insert($0).inserted }
     }
 
     func binaryImportPackage(for path: String, consumingPackage: String) -> String {
@@ -388,8 +285,6 @@ struct BazelDependencyResolver {
     func hasSwiftLibrary(for target: TuistTarget) -> Bool {
         target.product.isSwiftBacked && (
             target.sources.contains { $0.hasSuffix(".swift") } ||
-            target.sources.contains(where: Self.isClangSource) ||
-            !target.headers.all.isEmpty ||
             resourceAccessors.shouldGenerate(for: target)
         )
     }
@@ -403,7 +298,7 @@ struct BazelDependencyResolver {
         if target.product == .bundle {
             return try productLabel(for: target)
         }
-        guard !target.resources.isEmpty || !target.coreDataModels.isEmpty else { return nil }
+        guard !target.resources.isEmpty else { return nil }
         return BazelLabel(package: try paths.packagePath(for: target.projectPath), name: "_\(target.name)Resources")
     }
 
@@ -417,16 +312,11 @@ struct BazelDependencyResolver {
 
     static func libraryName(for target: TuistTarget) -> String {
         switch target.product {
-        case .app, .appClip, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .tvTopShelfExtension, .unitTests, .uiTests:
+        case .app, .appExtension, .framework, .staticFramework, .unitTests, .uiTests:
             "\(target.name)Lib"
-        case .staticLibrary, .dynamicLibrary, .macro, .bundle, .stickerPackExtension, .unsupported:
+        case .staticLibrary, .dynamicLibrary, .macro, .bundle, .unsupported:
             target.name
         }
-    }
-
-    static func isClangSource(_ path: String) -> Bool {
-        let supportedExtensions = ["c", "cc", "cpp", "cxx", "m", "mm"]
-        return supportedExtensions.contains(URL(fileURLWithPath: path).pathExtension)
     }
 
     static func defaultBundleId(for target: TuistTarget) -> String {

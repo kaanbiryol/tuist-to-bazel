@@ -22,15 +22,6 @@ extension BazelGenerator {
             version = "3.5.0",
             repo_name = "build_bazel_rules_swift",
         )
-        bazel_dep(
-            name = "rules_cc",
-            version = "0.2.17",
-        )
-        bazel_dep(
-            name = "rules_ios",
-            version = "6.0.1",
-            repo_name = "build_bazel_rules_ios",
-        )
         bazel_dep(name = "gazelle", version = "0.48.0")
         bazel_dep(name = "rules_swift_package_manager", version = "1.13.0")
         """
@@ -87,9 +78,6 @@ extension BazelGenerator {
             paths.root.appendingPathComponent(".package.resolved"),
             paths.root.appendingPathComponent("Tuist/Package.resolved"),
         ].first { fileManager.fileExists(atPath: $0.path) }
-            ?? localSwiftPackageManifests.values
-                .map { URL(fileURLWithPath: $0.packagePath).appendingPathComponent("Package.resolved") }
-                .first { fileManager.fileExists(atPath: $0.path) }
     }
 
     func normalizedPackageResolved(_ content: String) throws -> String {
@@ -144,7 +132,7 @@ extension BazelGenerator {
 
     func allRemoteSwiftPackages() -> [TuistRemoteSwiftPackage] {
         var seen: Set<TuistRemoteSwiftPackage> = []
-        return (graph.remoteSwiftPackages + localSwiftPackageManifests.values.flatMap(\.remotePackages))
+        return graph.remoteSwiftPackages
             .filter { seen.insert($0).inserted }
     }
 
@@ -204,7 +192,7 @@ extension BazelGenerator {
         switch product {
         case .framework, .staticFramework, .dynamicLibrary, .staticLibrary:
             true
-        case .app, .appClip, .appExtension, .extensionKitExtension, .messagesExtension, .stickerPackExtension, .tvTopShelfExtension, .macro, .bundle, .unitTests, .uiTests, .unsupported:
+        case .app, .appExtension, .macro, .bundle, .unitTests, .uiTests, .unsupported:
             false
         }
     }

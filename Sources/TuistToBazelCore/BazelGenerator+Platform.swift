@@ -4,9 +4,6 @@ extension BazelGenerator {
     enum ApplePlatform: Hashable {
         case ios
         case macOS
-        case tvOS
-        case watchOS
-        case visionOS
 
         var dependencyConditionName: String {
             switch self {
@@ -14,12 +11,6 @@ extension BazelGenerator {
                 "ios"
             case .macOS:
                 "macos"
-            case .tvOS:
-                "tvos"
-            case .watchOS:
-                "watchos"
-            case .visionOS:
-                "visionos"
             }
         }
     }
@@ -34,15 +25,6 @@ extension BazelGenerator {
         if !destinations.isDisjoint(with: iosDestinations) {
             return .ios
         }
-        if destinations.contains("appleTv") {
-            return .tvOS
-        }
-        if destinations.contains("appleWatch") {
-            return .watchOS
-        }
-        if destinations.contains("appleVision") {
-            return .visionOS
-        }
         if destinations.contains("mac"), destinations.isDisjoint(with: iosDestinations) {
             return .macOS
         }
@@ -55,25 +37,15 @@ extension BazelGenerator {
             "ios_static_framework"
         case .macOS:
             "macos_static_framework"
-        case .tvOS:
-            "tvos_static_framework"
-        case .watchOS:
-            "watchos_static_framework"
-        case .visionOS:
-            "visionos_static_framework"
         }
     }
 
     func minimumOSVersion(for platform: ApplePlatform) -> String {
         switch platform {
-        case .ios, .tvOS:
+        case .ios:
             "17.0"
         case .macOS:
             "14.0"
-        case .watchOS:
-            "9.0"
-        case .visionOS:
-            "1.0"
         }
     }
 
@@ -82,12 +54,6 @@ extension BazelGenerator {
         switch platform {
         case .ios:
             return "\(prefix)families = [\"iphone\", \"ipad\"],\n"
-        case .tvOS:
-            return "\(prefix)families = [\"tv\"],\n"
-        case .watchOS:
-            return "\(prefix)families = [\"watch\"],\n"
-        case .visionOS:
-            return "\(prefix)families = [\"vision\"],\n"
         case .macOS:
             return ""
         }
@@ -107,12 +73,6 @@ extension BazelGenerator {
             "ios"
         case .macOS:
             "macos"
-        case .tvOS:
-            "tvos"
-        case .watchOS:
-            "watchos"
-        case .visionOS:
-            "visionos"
         }
     }
 }

@@ -6,28 +6,6 @@ struct BazelBinaryImportRenderer {
 
     func render(packagePath: String, targets: [TuistTarget]) throws -> [String] {
         let dependencyPairs = try dependenciesWithConsumingPackages(for: packagePath, targets: targets)
-        let frameworkPaths = Set(dependencyPairs.flatMap { pair in
-            pair.dependencies.compactMap { dependency -> String? in
-                if case let .framework(path) = dependency,
-                   Self.package(for: path, consumingPackage: pair.packagePath, paths: paths) == packagePath {
-                    return path
-                }
-                return nil
-            }
-        })
-        let libraryImports = Dictionary(
-            grouping: dependencyPairs.flatMap { pair in
-                pair.dependencies.compactMap { dependency -> BazelLibraryImport? in
-                    if case let .library(path, _, swiftModuleMap) = dependency,
-                       let swiftModuleMap,
-                       Self.package(for: dependency, consumingPackage: pair.packagePath, paths: paths) == packagePath {
-                        return BazelLibraryImport(path: path, swiftModuleMap: swiftModuleMap)
-                    }
-                    return nil
-                }
-            },
-            by: \.name
-        ).values.compactMap(\.first)
         let xcframeworkImports = Dictionary(
             grouping: try dependencyPairs.flatMap { pair in
                 try pair.dependencies.compactMap { dependency -> BazelXCFrameworkImport? in
@@ -41,16 +19,6 @@ struct BazelBinaryImportRenderer {
             by: \.name
         ).values.compactMap(\.first)
 
-        let frameworkImports = try frameworkPaths.sorted().map { path in
-            let relative = try paths.pathRelativeToPackage(path, packagePath: packagePath)
-            return """
-            apple_static_framework_import(
-                name = "\(Self.name(for: path))",
-                framework_imports = glob([\(Starlark.quote(relative + "/**"))]),
-                tags = ["manual"],
-            )
-            """
-        }
         let xcframeworkRules = try xcframeworkImports.sorted(by: { $0.name < $1.name }).map { xcframeworkImport in
             let relative = try paths.pathRelativeToPackage(xcframeworkImport.path, packagePath: packagePath)
             let featuresAttribute = xcframeworkImport.features.isEmpty ? "" : "    features = \(Starlark.list(xcframeworkImport.features, indent: 4)),\n"
@@ -62,23 +30,7 @@ struct BazelBinaryImportRenderer {
             )
             """
         }
-        let swiftImports = try libraryImports.sorted(by: { $0.name < $1.name }).map { libraryImport in
-            let archive = try paths.pathRelativeToPackage(libraryImport.path, packagePath: packagePath)
-            let swiftInterface = try paths.pathRelativeToPackage(libraryImport.swiftInterfacePath, packagePath: packagePath)
-            let swiftDoc = try paths.pathRelativeToPackage(libraryImport.swiftDocPath, packagePath: packagePath)
-            return """
-            swift_import(
-                name = "\(libraryImport.importName)",
-                archives = [\(Starlark.quote(archive))],
-                module_name = "\(libraryImport.name)",
-                swiftdoc = \(Starlark.quote(swiftDoc)),
-                swiftinterface = \(Starlark.quote(swiftInterface)),
-                tags = ["manual"],
-            )
-            """
-        }
-
-        return frameworkImports + xcframeworkRules + swiftImports
+        return xcframeworkRules
     }
 
     func dependenciesWithConsumingPackages(
@@ -88,19 +40,6 @@ struct BazelBinaryImportRenderer {
         let dependencyTargets = packagePath.isEmpty ? graph.projects.flatMap(\.targets) : targets
         return try dependencyTargets.map { target in
             (try paths.packagePath(for: target.projectPath), target.dependencies)
-        }
-    }
-
-    static func package(for dependency: TuistDependency, consumingPackage: String, paths: PathContext) -> String? {
-        switch dependency {
-        case let .framework(path):
-            package(for: path, consumingPackage: consumingPackage, paths: paths)
-        case let .xcframework(path):
-            package(for: path, consumingPackage: consumingPackage, paths: paths)
-        case .library:
-            ""
-        case .target, .project, .package(_, _), .sdk, .xctest:
-            nil
         }
     }
 
@@ -187,38 +126,5 @@ struct BazelXCFrameworkImport: Hashable {
             }
         }
         return false
-    }
-}
-
-struct BazelLibraryImport: Hashable {
-    let path: String
-    let swiftModuleMap: String
-
-    var name: String {
-        URL(fileURLWithPath: swiftModuleMap).deletingPathExtension().lastPathComponent
-    }
-
-    var importName: String {
-        "_\(sanitizedModuleName(name))Import"
-    }
-
-    var swiftInterfacePath: String {
-        let moduleDirectory = URL(fileURLWithPath: swiftModuleMap)
-        let preferred = moduleDirectory.appendingPathComponent("arm64-apple-ios-simulator.swiftinterface").path
-        if FileManager.default.fileExists(atPath: preferred) {
-            return preferred
-        }
-        let fallback = moduleDirectory.appendingPathComponent("x86_64-apple-ios-simulator.swiftinterface").path
-        if FileManager.default.fileExists(atPath: fallback) {
-            return fallback
-        }
-        return moduleDirectory.appendingPathComponent("\(name).swiftinterface").path
-    }
-
-    var swiftDocPath: String {
-        URL(fileURLWithPath: swiftInterfacePath)
-            .deletingPathExtension()
-            .appendingPathExtension("swiftdoc")
-            .path
     }
 }

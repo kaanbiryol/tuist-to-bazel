@@ -65,7 +65,7 @@ Run `swift test` after changing the conversion rules. Prefer small overrides tha
 
 ## Fixture Strategy
 
-Tuist fixture coverage is intentionally bounded and pinned in `Fixtures/manifest.json`. Its 25 selected fixtures are a frozen regression corpus for common project structures, primarily generic iOS application migrations; the goal is not to mirror or eventually support every upstream Tuist fixture. The manifest records the upstream Tuist repository, commit, and selected fixture names. `scripts/update-tuist-fixtures.sh` uses git sparse checkout to refresh only those upstream `examples/xcode` fixtures in `Fixtures/Tuist`.
+Tuist fixture coverage is intentionally bounded and pinned in `Fixtures/manifest.json`. Its 8 selected fixtures are a frozen regression corpus for common Swift iOS and macOS project structures; the goal is not to mirror or eventually support every upstream Tuist fixture. The manifest records the upstream Tuist repository, commit, and selected fixture names. `scripts/update-tuist-fixtures.sh` uses git sparse checkout to refresh only those upstream `examples/xcode` fixtures in `Fixtures/Tuist`.
 
 This repo intentionally does not use a git submodule for Tuist fixtures. The synced fixture corpus is committed as ordinary files, which keeps CI and local setup simple: clone this repo and the pinned fixtures are already present. Refreshing the frozen set is an explicit update step that produces normal reviewable diffs; it does not discover or add new Tuist fixtures.
 
@@ -84,23 +84,21 @@ For common dependency and platform questions, start with these fixtures:
 
 | Scenario | Recommended fixture | What it covers |
 |---|---|---|
-| Swift packages | `generated_app_with_local_spm_module_with_remote_dependencies` | Local package products with transitive remote dependencies |
-| Binary dependencies | `generated_ios_app_with_xcframeworks` | Dynamic and static XCFrameworks, static libraries, and linker settings |
-| Multiple platforms | `generated_multiplatform_app` | iOS, macOS, watchOS, and platform-conditional dependencies |
+| Swift packages | `generated_ios_app_with_remote_swift_package` | Remote package products and generated SwiftPM support files |
+| Binary dependencies | `generated_ios_app_with_xcframeworks` | Dynamic and static XCFrameworks and linker settings |
+| iOS and macOS | `generated_ios_app_with_tests` | Applications, frameworks, tests, and both retained platforms |
 
 The broader capability map is:
 
 | Capability | Representative fixtures |
 |---|---|
-| Apps, frameworks, extensions, and unit tests | `generated_app_with_framework_and_tests`, `generated_ios_app_with_tests` |
+| Apps, frameworks, generic iOS extensions, and tests | `generated_app_with_framework_and_tests`, `generated_ios_app_with_tests` |
 | Resources, bundles, localization, and string catalogs | `generated_ios_app_with_framework_and_resources`, `generated_ios_app_with_static_framework_with_xcstrings` |
-| Static frameworks, libraries, and binary imports | `generated_ios_app_with_static_frameworks_with_resources`, `generated_ios_app_with_static_libraries`, `generated_ios_app_with_xcframeworks` |
-| SDKs, weak linking, headers, and mixed-language targets | `generated_ios_app_with_sdk`, `generated_ios_app_with_headers` |
-| Local, remote, and binary Swift packages | `generated_ios_app_with_local_swift_package`, `generated_ios_app_with_remote_swift_package`, `generated_ios_app_with_local_binary_swift_package` |
-| App Clips and extension products | `generated_ios_app_with_appclip`, `generated_ios_app_with_extensions` |
-| Core Data and buildable folders | `generated_ios_app_with_coredata`, `generated_ios_app_with_framework_buildable_folders_and_xcassets` |
-| watchOS, tvOS, and visionOS products | `generated_ios_app_with_watch_application`, `generated_tvos_app_with_extensions`, `generated_tvos_app_with_uitest`, `generated_visionos_app` |
-| Multiplatform conditional dependencies | `generated_multiplatform_app` |
+| Static frameworks and direct binary imports | `generated_ios_app_with_static_framework_with_xcstrings`, `generated_ios_app_with_xcframeworks` |
+| Remote Swift packages | `generated_app_with_alamofire`, `generated_ios_app_with_remote_swift_package` |
+| Buildable folders and asset catalogs | `generated_ios_app_with_framework_buildable_folders_and_xcassets` |
+
+Swift macro targets and remote package compiler plugins remain supported through focused generator tests. The former upstream macro fixture is intentionally excluded because it primarily exercised local `Package.swift` translation and transitive mixed-language packages, both outside this tool's scope.
 
 `Fixtures/manifest.json` contains the complete supported fixture set, feature tags, expected diagnostics, and verification commands.
 
@@ -139,7 +137,7 @@ It covers a fuller Tuist graph than the original small fixture:
 - asset catalogs, localized strings, string dictionaries, plists, fonts, folder references, and `.bundle` imports
 - Tuist-style synthesized resource accessors generated as Swift support sources
 
-Some fixtures intentionally include binary-style test payloads such as small prebuilt frameworks, archives, image assets, and resource bundles. They are not production dependencies for `tuist-to-bazel`; they are committed conformance inputs so binary import, asset catalog, bundle import, and framework-resource generation stay reproducible in CI. The `SF-Pro-Display-*.otf` files in the copied fixtures and showcase are filename-only placeholders generated by the updater script, not redistributions of Apple's font payloads.
+Some fixtures intentionally include binary-style test payloads such as XCFrameworks, image assets, and resource bundles. They are not production dependencies for `tuist-to-bazel`; they are committed conformance inputs so XCFramework import, asset catalog, bundle import, and framework-resource generation stay reproducible in CI. The `SF-Pro-Display-*.otf` files in the copied fixtures and showcase are filename-only placeholders generated by the updater script, not redistributions of Apple's font payloads.
 
 Useful verification commands:
 
@@ -154,28 +152,26 @@ bazelisk build //...
 
 | Tuist product | Bazel output |
 |---|---|
-| `app` | source library + iOS, tvOS, watchOS, or visionOS application rule |
-| `appClip` / `app_clip` | `swift_library` + `ios_app_clip` |
-| `appExtension` / `app_extension` | source library + iOS, macOS, tvOS, or watchOS extension rule |
-| `extensionKitExtension`, Messages, sticker pack, and TV top shelf extensions | source library + matching platform extension rule |
-| `framework` | source library + platform framework rule |
-| `staticFramework` / `static_framework` | source library + platform static framework rule |
+| `app` | `swift_library` + iOS or macOS application rule |
+| `appExtension` / `app_extension` | `swift_library` + generic `ios_extension` |
+| `framework` | `swift_library` + iOS or macOS framework rule |
+| `staticFramework` / `static_framework` | `swift_library` + iOS or macOS static framework rule |
 | `bundle` | `apple_resource_bundle` |
-| `unitTests` / `unit_tests` | `swift_library` + platform unit test rule |
-| `uiTests` / `ui_tests` | `swift_library` + platform UI test rule |
-| `staticLibrary` / `dynamicLibrary` | source library |
+| `unitTests` / `unit_tests` | `swift_library` + iOS or macOS unit test rule |
+| `uiTests` / `ui_tests` | `swift_library` + iOS or macOS UI test rule |
+| `staticLibrary` / `dynamicLibrary` | `swift_library` |
 | `macro` | `swift_compiler_plugin` |
 
-Source targets generate `swift_library`, `objc_library`, or `mixed_language_library` as appropriate. Supported Clang inputs include C, C++, Objective-C, Objective-C++, and Tuist header groups.
+Source targets must contain Swift only and generate `swift_library`. Objective-C, C, C++, headers, and mixed-language targets fail conversion with an actionable diagnostic.
 
 Dependency generation includes:
 
-- target and project dependencies with platform conditions
-- local and remote Swift package products, including local binary targets and compiler plugins
+- target and project dependencies with iOS and macOS platform conditions
+- remote Swift package products and compiler plugins
 - SDK frameworks, weak SDK frameworks, SDK libraries, and XCTest
-- checked-in frameworks, static archives with Swift module maps, and static or dynamic XCFramework imports
+- direct static or dynamic XCFramework imports
 
-Resource handling includes `apple_resource_group`, `apple_bundle_import` for checked-in `.bundle` directories, `apple_core_data_model` for Core Data generated sources, generated `Bundle.module` bridges including for string catalogs, and narrow Tuist-style accessors for assets, strings, string dictionaries, plists, fonts, and Core Data entity classes.
+Resource handling includes `apple_resource_group`, `apple_bundle_import` for checked-in `.bundle` directories, generated `Bundle.module` bridges including for string catalogs, and narrow Tuist-style accessors for assets, strings, string dictionaries, plists, and fonts.
 
 `Fixtures/manifest.json` is the fixture support contract. Every selected entry is supported and has executable graph, conversion, query, and build plans. Features omitted from the corpus are not an implied roadmap.
 
@@ -183,11 +179,16 @@ Resource handling includes `apple_resource_group`, `apple_bundle_import` for che
 
 - The graph DTOs cover only the fields needed for Bazel generation.
 - Package products that cannot be mapped unambiguously are reported as warnings. Remote packages require `Package.resolved`.
-- Binary libraries without a Swift module map are reported as warnings rather than generated.
+- Local `Package.swift` translation is unsupported; migrate local packages to Bazel separately.
+- Checked-in `.framework` bundles and `.a` archives are unsupported; package binaries as XCFrameworks.
+- Core Data models and generated entity classes are unsupported.
+- Remote packages whose resolved Tuist targets require Objective-C, C, or C++ are unsupported.
+- App Clips, specialized extension products, and targets exclusive to tvOS, watchOS, or visionOS are unsupported. Cross-platform dependencies generate only their iOS or macOS slice.
+- Objective-C, C, C++, headers, and mixed-language targets are unsupported.
 - ODR resource tags are reported as warnings and are not represented in Bazel output.
 - Resource accessor synthesis is intentionally narrow and aimed at common Tuist-generated symbols.
-- Minimum OS versions are currently fixed at iOS/tvOS 17.0, macOS 14.0, watchOS 9.0, and visionOS 1.0.
-- Standalone macOS applications, visionOS extensions, command-line tools, and Swift package registries are outside the intended generic iOS migration scope and are not tracked as planned fixtures.
+- Minimum OS versions are currently fixed at iOS 17.0 and macOS 14.0.
+- Command-line tools and Swift package registries are outside the intended migration scope.
 - Arbitrary build settings, scripts, and custom Tuist build rules are not modeled.
 - XCTest bundles are generated and built, but simulator execution on Xcode 26.6 is not a CI gate because the test runner pinned by stable rules_apple 4.5.x can hang before launching tests.
 

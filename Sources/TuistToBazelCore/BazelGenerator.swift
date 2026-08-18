@@ -5,16 +5,12 @@ struct BazelGenerator {
     let paths: PathContext
     let fileManager = FileManager.default
     let resourceAccessors = ResourceAccessorGenerator()
-    let swiftPackageParser = SwiftPackageManifestParser()
     var warnings: [String] = []
     var generatedFiles: [String: String] = [:]
     var targetsByName: [String: TuistTarget] = [:]
     var targetsByPathAndName: [String: TuistTarget] = [:]
     var targetsWithTestConsumers: Set<String> = []
     var extensionSafeTargets: Set<String> = []
-    var appSpecificExtensionConsumers: [String: [AppSpecificExtensionConsumer]] = [:]
-    var localSwiftPackageManifests: [String: SwiftPackageManifest] = [:]
-    var localSwiftPackageProductLabels: [String: BazelLabel] = [:]
     var remoteSwiftPackageRepositories: [String] = []
     var remoteSwiftPackageProductLabels: [String: BazelLabel] = [:]
 
@@ -24,8 +20,8 @@ struct BazelGenerator {
     }
 
     mutating func render() throws -> (files: [String: String], warnings: [String]) {
+        try validateSupportedGraph()
         indexTargets()
-        try indexLocalSwiftPackages()
         try indexRemoteSwiftPackages()
         try renderRemoteSwiftPackageSupportFiles()
         var files: [String: String] = [:]
@@ -47,17 +43,6 @@ struct BazelGenerator {
             files[pathForBuildFile(packagePath)] = try renderPackageBuild(
                 packagePath: packagePath,
                 targets: targetsByPackage[packagePath] ?? []
-            )
-        }
-        for packagePath in localSwiftPackageManifests.keys.sorted() {
-            let buildPath = pathForBuildFile(packagePath)
-            guard files[buildPath] == nil else {
-                warnings.append("local Swift package at \(packagePath) overlaps an existing Bazel package")
-                continue
-            }
-            files[buildPath] = try renderLocalSwiftPackageBuild(
-                packagePath: packagePath,
-                manifest: localSwiftPackageManifests[packagePath]!
             )
         }
         for (path, content) in generatedFiles {

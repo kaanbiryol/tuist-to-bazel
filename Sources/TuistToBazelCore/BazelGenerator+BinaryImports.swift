@@ -13,20 +13,8 @@ extension BazelGenerator {
             .dependenciesWithConsumingPackages(for: packagePath, targets: targets)
     }
 
-    func binaryImportPackage(for dependency: TuistDependency, consumingPackage: String) -> String? {
-        BazelBinaryImportRenderer.package(for: dependency, consumingPackage: consumingPackage, paths: paths)
-    }
-
     func binaryImportPackage(for path: String, consumingPackage: String) -> String {
         BazelBinaryImportRenderer.package(for: path, consumingPackage: consumingPackage, paths: paths)
-    }
-
-    func binaryImportName(for path: String) -> String {
-        BazelBinaryImportRenderer.name(for: path)
-    }
-
-    func xcframeworkImportName(for path: String) -> String {
-        BazelBinaryImportRenderer.name(for: path)
     }
 
     func xcframeworkImport(for path: String) throws -> BazelXCFrameworkImport {

@@ -3,7 +3,7 @@ import Foundation
 struct TuistGraph {
     let name: String
     let projects: [TuistProject]
-    var localSwiftPackages: [TuistLocalSwiftPackage] = []
+    var localSwiftPackagePaths: [String] = []
     var remoteSwiftPackages: [TuistRemoteSwiftPackage] = []
 }
 
@@ -11,10 +11,6 @@ struct TuistProject {
     let name: String
     let path: String
     let targets: [TuistTarget]
-}
-
-struct TuistLocalSwiftPackage: Hashable {
-    let path: String
 }
 
 struct TuistRemoteSwiftPackage: Hashable {
@@ -55,16 +51,10 @@ struct TuistTarget {
     let infoPlistPath: String?
     var infoPlistEntries: [String: PlistValue] = [:]
     let sources: [String]
-    var headers: TuistHeaders = .empty
-    var coreDataModels: [TuistCoreDataModel] = []
+    var headers: [String] = []
+    var coreDataModelPaths: [String] = []
     let resources: [TuistResource]
     let dependencies: [TuistDependency]
-}
-
-struct TuistCoreDataModel: Hashable {
-    let path: String
-    let currentVersion: String?
-    let versions: [String]
 }
 
 enum PlistValue: Equatable {
@@ -75,28 +65,11 @@ enum PlistValue: Equatable {
     case dictionary([String: PlistValue])
 }
 
-struct TuistHeaders {
-    let publicHeaders: [String]
-    let privateHeaders: [String]
-    let projectHeaders: [String]
-
-    static let empty = TuistHeaders(publicHeaders: [], privateHeaders: [], projectHeaders: [])
-
-    var all: [String] {
-        publicHeaders + privateHeaders + projectHeaders
-    }
-}
-
 enum ProductType: String {
     case app
-    case appClip
     case appExtension
-    case extensionKitExtension
     case framework
-    case messagesExtension
     case staticFramework
-    case stickerPackExtension
-    case tvTopShelfExtension
     case staticLibrary
     case dynamicLibrary
     case macro
@@ -109,22 +82,12 @@ enum ProductType: String {
         switch rawGraphValue {
         case "app":
             self = .app
-        case "app_clip", "appClip":
-            self = .appClip
         case "app_extension", "appExtension":
             self = .appExtension
-        case "extension_kit_extension", "extensionKitExtension":
-            self = .extensionKitExtension
         case "framework":
             self = .framework
-        case "messages_extension", "messagesExtension":
-            self = .messagesExtension
         case "staticFramework", "static_framework":
             self = .staticFramework
-        case "sticker_pack_extension", "stickerPackExtension":
-            self = .stickerPackExtension
-        case "tv_top_shelf_extension", "tvTopShelfExtension":
-            self = .tvTopShelfExtension
         case "staticLibrary", "static_library":
             self = .staticLibrary
         case "dynamicLibrary", "dynamic_library":
@@ -144,9 +107,9 @@ enum ProductType: String {
 
     var isSwiftBacked: Bool {
         switch self {
-        case .app, .appClip, .appExtension, .extensionKitExtension, .framework, .messagesExtension, .staticFramework, .tvTopShelfExtension, .staticLibrary, .dynamicLibrary, .unitTests, .uiTests:
+        case .app, .appExtension, .framework, .staticFramework, .staticLibrary, .dynamicLibrary, .unitTests, .uiTests:
             true
-        case .bundle, .macro, .stickerPackExtension, .unsupported:
+        case .bundle, .macro, .unsupported:
             false
         }
     }
@@ -166,12 +129,11 @@ struct TuistResource: Hashable {
 enum TuistDependency {
     case target(name: String, condition: TuistDependencyCondition? = nil)
     case project(target: String, path: String, condition: TuistDependencyCondition? = nil)
-    case framework(path: String)
     case xcframework(path: String)
-    case library(path: String, publicHeaders: String?, swiftModuleMap: String?)
     case package(product: String, kind: PackageDependencyKind = .runtime)
     case sdk(name: String, status: String?)
     case xctest
+    case unsupported(String)
 }
 
 struct TuistDependencyCondition: Equatable {

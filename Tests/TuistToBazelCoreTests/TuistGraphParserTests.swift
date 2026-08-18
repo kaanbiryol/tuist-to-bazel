@@ -45,7 +45,7 @@ final class TuistGraphParserTests: XCTestCase {
         XCTAssertEqual(graph.projects[0].targets[0].dependencies.count, 1)
     }
 
-    func testParsesLocalSwiftPackages() throws {
+    func testRecordsLocalSwiftPackagesForUnsupportedFeatureDiagnostics() throws {
         let json = """
         {
           "name": "Fixture",
@@ -78,7 +78,7 @@ final class TuistGraphParserTests: XCTestCase {
 
         let graph = try TuistGraphParser().parse(data: Data(json.utf8))
 
-        XCTAssertEqual(graph.localSwiftPackages, [TuistLocalSwiftPackage(path: "/tmp/App/Packages/PackageA")])
+        XCTAssertEqual(graph.localSwiftPackagePaths, ["/tmp/App/Packages/PackageA"])
     }
 
     func testParsesRemoteSwiftPackages() throws {
@@ -287,7 +287,7 @@ final class TuistGraphParserTests: XCTestCase {
         XCTAssertEqual(target.sources, ["/tmp/App/Sources/Macros/Macros.swift"])
     }
 
-    func testParsesAppClipProduct() throws {
+    func testTreatsAppClipProductAsUnsupported() throws {
         let json = """
         {
           "name": "Fixture",
@@ -313,11 +313,11 @@ final class TuistGraphParserTests: XCTestCase {
 
         let target = try TuistGraphParser().parse(data: Data(json.utf8)).projects[0].targets[0]
 
-        XCTAssertEqual(target.product, .appClip)
+        XCTAssertEqual(target.product, .unsupported)
         XCTAssertEqual(target.bundleId, "dev.tuist.App.Clip")
     }
 
-    func testParsesCoreDataModels() throws {
+    func testRecordsCoreDataModelsForUnsupportedFeatureDiagnostics() throws {
         let json = """
         {
           "name": "Fixture",
@@ -346,19 +346,10 @@ final class TuistGraphParserTests: XCTestCase {
 
         let target = try TuistGraphParser().parse(data: Data(json.utf8)).projects[0].targets[0]
 
-        XCTAssertEqual(target.coreDataModels, [
-            TuistCoreDataModel(
-                path: "/tmp/App/CoreData/Users.xcdatamodeld",
-                currentVersion: "2",
-                versions: [
-                    "/tmp/App/CoreData/Users.xcdatamodeld/1.xcdatamodel",
-                    "/tmp/App/CoreData/Users.xcdatamodeld/2.xcdatamodel",
-                ]
-            ),
-        ])
+        XCTAssertEqual(target.coreDataModelPaths, ["/tmp/App/CoreData/Users.xcdatamodeld"])
     }
 
-    func testParsesExtensionProductsAndDefaultInfoPlistEntries() throws {
+    func testTreatsSpecializedExtensionProductsAsUnsupported() throws {
         let json = """
         {
           "name": "Fixture",
@@ -415,14 +406,14 @@ final class TuistGraphParserTests: XCTestCase {
 
         let targets = try TuistGraphParser().parse(data: Data(json.utf8)).projects[0].targets
 
-        XCTAssertEqual(targets.map(\.product), [.extensionKitExtension, .messagesExtension, .stickerPackExtension])
+        XCTAssertEqual(targets.map(\.product), [.unsupported, .unsupported, .unsupported])
         XCTAssertEqual(
             targets[0].infoPlistEntries["EXAppExtensionAttributes"],
             .dictionary(["EXExtensionPointIdentifier": .string("com.apple.appintents-extension")])
         )
     }
 
-    func testParsesTVTopShelfExtensionProduct() throws {
+    func testTreatsTVTopShelfExtensionProductAsUnsupported() throws {
         let json = """
         {
           "name": "Fixture",
@@ -448,7 +439,7 @@ final class TuistGraphParserTests: XCTestCase {
 
         let target = try TuistGraphParser().parse(data: Data(json.utf8)).projects[0].targets[0]
 
-        XCTAssertEqual(target.product, .tvTopShelfExtension)
+        XCTAssertEqual(target.product, .unsupported)
         XCTAssertEqual(target.destinations, ["appleTv"])
     }
 

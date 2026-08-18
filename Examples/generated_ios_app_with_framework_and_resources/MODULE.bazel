@@ -17,14 +17,5 @@ bazel_dep(
     version = "3.5.0",
     repo_name = "build_bazel_rules_swift",
 )
-bazel_dep(
-    name = "rules_cc",
-    version = "0.2.17",
-)
-bazel_dep(
-    name = "rules_ios",
-    version = "6.0.1",
-    repo_name = "build_bazel_rules_ios",
-)
 bazel_dep(name = "gazelle", version = "0.48.0")
 bazel_dep(name = "rules_swift_package_manager", version = "1.13.0")

@@ -8,7 +8,7 @@ struct ResourceAccessorGenerator {
     }
 
     func shouldGenerate(for target: TuistTarget) -> Bool {
-        guard target.product.isSwiftBacked, !target.resources.isEmpty || !target.coreDataModels.isEmpty else { return false }
+        guard target.product.isSwiftBacked, !target.resources.isEmpty else { return false }
         if !target.sources.contains(where: { $0.hasSuffix(".swift") }) {
             return true
         }
@@ -31,14 +31,13 @@ struct ResourceAccessorGenerator {
         let bundleVariableName = "\(swiftPropertyIdentifier(target.productName, fallback: target.name))ResourceBundle"
         let bundleFinderName = "\(moduleName)ResourceBundleFinder"
         let resources = resourceInventory(for: target)
-        let coreDataImport = resources.coreDataClasses.isEmpty ? "" : "\nimport CoreData"
 
         var blocks = [
             """
             import Foundation
             #if canImport(UIKit)
             import UIKit
-            #endif\(coreDataImport)
+            #endif
             """,
             renderBundleAccessor(
                 bundleEnumName: bundleEnumName,
@@ -64,10 +63,6 @@ struct ResourceAccessorGenerator {
         if !resources.fonts.isEmpty {
             blocks.append(renderFonts(resources.fonts, moduleName: moduleName))
         }
-        if !resources.coreDataClasses.isEmpty {
-            blocks.append(renderCoreDataClasses(resources.coreDataClasses))
-        }
-
         return blocks.joined(separator: "\n\n") + "\n"
     }
 
@@ -85,7 +80,6 @@ struct ResourceAccessorGenerator {
             names.append("\(moduleName)FontFamily")
         }
         names.append(contentsOf: resources.plists.map(\.typeName))
-        names.append(contentsOf: resources.coreDataClasses.map(\.className))
         return names
     }
 
@@ -125,16 +119,6 @@ struct ResourceAccessorGenerator {
             static var module: Bundle { \(bundleEnumName).bundle }
         }
         """
-    }
-
-    private func renderCoreDataClasses(_ classes: [CoreDataClass]) -> String {
-        classes.sorted(by: { $0.className < $1.className }).map { entity in
-            """
-            @objc(\(entity.objectiveCName))
-            public final class \(entity.className): NSManagedObject {
-            }
-            """
-        }.joined(separator: "\n\n")
     }
 
     private func renderAssets(_ assets: [Asset], moduleName: String, bundleEnumName: String) -> String {
@@ -304,52 +288,8 @@ struct ResourceAccessorGenerator {
             stringTables: stringTables(in: files),
             stringDictTables: stringDictTables(in: files),
             plists: plistAccessors(in: files),
-            fonts: fontAccessors(in: files),
-            coreDataClasses: coreDataClasses(for: target)
+            fonts: fontAccessors(in: files)
         )
-    }
-
-    private func coreDataClasses(for target: TuistTarget) -> [CoreDataClass] {
-        var classes: Set<CoreDataClass> = []
-        for model in target.coreDataModels {
-            for contentsPath in currentModelContentsPaths(for: model) {
-                classes.formUnion(coreDataClasses(inModelContents: contentsPath))
-            }
-        }
-        return Array(classes)
-    }
-
-    private func currentModelContentsPaths(for model: TuistCoreDataModel) -> [String] {
-        let versions = model.versions.isEmpty ? [model.path] : model.versions
-        let selectedVersion = model.currentVersion.flatMap { currentVersion in
-            versions.first { version in
-                let versionName = URL(fileURLWithPath: version).deletingPathExtension().lastPathComponent
-                return versionName == currentVersion || URL(fileURLWithPath: version).lastPathComponent == currentVersion
-            }
-        }
-
-        let modelPaths = selectedVersion.map { [$0] } ?? versions
-        return modelPaths.map { path in
-            URL(fileURLWithPath: path).appendingPathComponent("contents").path
-        }
-    }
-
-    private func coreDataClasses(inModelContents path: String) -> [CoreDataClass] {
-        guard let document = try? XMLDocument(contentsOf: URL(fileURLWithPath: path), options: []),
-              let entities = try? document.nodes(forXPath: "//entity") else {
-            return []
-        }
-        return entities.compactMap { node in
-            guard let element = node as? XMLElement,
-                  let name = element.attribute(forName: "name")?.stringValue else {
-                return nil
-            }
-            let className = element.attribute(forName: "representedClassName")?.stringValue ?? name
-            return CoreDataClass(
-                className: swiftTypeIdentifier(className, fallback: name),
-                objectiveCName: swiftTypeIdentifier(className, fallback: name)
-            )
-        }
     }
 
     private func resourceFiles(for target: TuistTarget) -> [String] {
@@ -541,12 +481,6 @@ private struct ResourceInventory {
     let stringDictTables: [StringDictTable]
     let plists: [PlistAccessor]
     let fonts: [FontAccessor]
-    let coreDataClasses: [CoreDataClass]
-}
-
-private struct CoreDataClass: Hashable {
-    let className: String
-    let objectiveCName: String
 }
 
 private struct Asset: Hashable {

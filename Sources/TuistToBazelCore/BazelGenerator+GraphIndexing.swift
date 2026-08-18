@@ -1,6 +1,64 @@
 import Foundation
 
 extension BazelGenerator {
+    func validateSupportedGraph() throws {
+        if let localPackage = graph.localSwiftPackagePaths.first {
+            throw ConversionError.unsupported(
+                "local Swift package conversion is not supported: \(localPackage); migrate it to Bazel separately"
+            )
+        }
+
+        let unsupportedSourceExtensions: Set<String> = ["c", "cc", "cpp", "cxx", "m", "mm", "s", "asm"]
+        for target in graph.projects.flatMap(\.targets) {
+            if target.product == .unsupported {
+                throw ConversionError.unsupported("target \(target.name) uses an unsupported product")
+            }
+
+            let destinations = Set(target.destinations)
+            let removedDestinations = destinations.intersection(["appleTv", "appleWatch", "appleVision"])
+            let supportedDestinations = destinations.intersection(["iPhone", "iPad", "mac", "macWithiPadDesign"])
+            if supportedDestinations.isEmpty, let destination = removedDestinations.sorted().first {
+                throw ConversionError.unsupported(
+                    "target \(target.name) uses unsupported destination \(destination); only iOS and macOS are supported"
+                )
+            }
+
+            if target.product == .appExtension, Self.resolvePlatform(for: target) != .ios {
+                throw ConversionError.unsupported(
+                    "app extension target \(target.name) is not an iOS extension"
+                )
+            }
+
+            if let source = target.sources.first(where: {
+                unsupportedSourceExtensions.contains(URL(fileURLWithPath: $0).pathExtension.lowercased())
+            }) {
+                throw ConversionError.unsupported(
+                    "target \(target.name) contains non-Swift source \(source); Objective-C, C, and C++ sources are not supported"
+                )
+            }
+
+            if let header = target.headers.first {
+                throw ConversionError.unsupported(
+                    "target \(target.name) contains header \(header); Objective-C and mixed-language targets are not supported"
+                )
+            }
+
+            if let model = target.coreDataModelPaths.first {
+                throw ConversionError.unsupported(
+                    "target \(target.name) contains Core Data model \(model); Core Data generation is not supported"
+                )
+            }
+
+            for dependency in target.dependencies {
+                if case let .unsupported(description) = dependency {
+                    throw ConversionError.unsupported(
+                        "target \(target.name) uses unsupported dependency: \(description); use an XCFramework instead"
+                    )
+                }
+            }
+        }
+    }
+
     mutating func indexTargets() {
         for target in graph.projects.flatMap(\.targets) {
             targetsByName[target.name] = target
@@ -24,23 +82,6 @@ extension BazelGenerator {
             }
         }
 
-        for app in graph.projects.flatMap(\.targets) where app.product == .app || app.product == .appClip {
-            for dependency in app.dependencies {
-                guard let extensionTarget = resolveTargetDependency(dependency),
-                      isExtensionProduct(extensionTarget.product),
-                      requiresAppSpecificExtensionBundle(extensionTarget, app: app) else {
-                    continue
-                }
-                let consumer = AppSpecificExtensionConsumer(
-                    wrapperName: appSpecificExtensionName(for: extensionTarget, app: app),
-                    bundleId: appSpecificExtensionBundleId(for: extensionTarget, app: app)
-                )
-                let identity = targetIdentity(extensionTarget)
-                if appSpecificExtensionConsumers[identity]?.contains(where: { $0.wrapperName == consumer.wrapperName }) != true {
-                    appSpecificExtensionConsumers[identity, default: []].append(consumer)
-                }
-            }
-        }
     }
 
     func indexKey(path: String, name: String) -> String {
@@ -49,38 +90,6 @@ extension BazelGenerator {
 
     func targetIdentity(_ target: TuistTarget) -> String {
         BazelDependencyResolver.targetIdentity(target)
-    }
-
-    mutating func indexLocalSwiftPackages() throws {
-        for localPackage in graph.localSwiftPackages {
-            let packagePath = try paths.packagePath(for: localPackage.path)
-            guard localSwiftPackageManifests[packagePath] == nil else {
-                continue
-            }
-            let manifest = try swiftPackageParser.parse(packagePath: localPackage.path)
-            localSwiftPackageManifests[packagePath] = manifest
-
-            let targetNames = localSwiftPackageTargetNamesToGenerate(manifest)
-            for product in manifest.products {
-                guard let targetName = product.targets.first, product.targets.count == 1, targetNames.contains(targetName) else {
-                    warnings.append("local Swift package product \(product.name) is not generated because it has multiple or missing targets")
-                    continue
-                }
-                let label = BazelLabel(package: packagePath, name: targetName)
-                if localSwiftPackageProductLabels[product.name] == nil {
-                    localSwiftPackageProductLabels[product.name] = label
-                } else {
-                    warnings.append("local Swift package product \(product.name) is ambiguous")
-                }
-            }
-
-            for target in manifest.targets where targetNames.contains(target.name) {
-                localSwiftPackageProductLabels[target.name] = BazelLabel(package: packagePath, name: target.name)
-            }
-            for target in manifest.binaryTargets where targetNames.contains(target.name) {
-                localSwiftPackageProductLabels[target.name] = BazelLabel(package: packagePath, name: target.name)
-            }
-        }
     }
 
     mutating func indexRemoteSwiftPackages() throws {
@@ -92,15 +101,11 @@ extension BazelGenerator {
             .flatMap(\.targets)
             .flatMap(\.dependencies)
             .compactMap { dependency -> String? in
-                guard case let .package(product, kind) = dependency, kind == .runtime else {
+                guard case let .package(product, _) = dependency else {
                     return nil
                 }
                 return product
             }
-        let localPackageDependencyProducts = localSwiftPackageManifests.values
-            .flatMap(\.targets)
-            .flatMap(\.packageDependencies)
-
         guard allRemoteSwiftPackages().count == 1,
               let repository = remoteSwiftPackageRepositories.first else {
             if allRemoteSwiftPackages().count > 1 {
@@ -109,7 +114,7 @@ extension BazelGenerator {
             return
         }
 
-        for product in orderedUnique(packageDependencyProducts + localPackageDependencyProducts) where localSwiftPackageProductLabels[product] == nil {
+        for product in orderedUnique(packageDependencyProducts) {
             remoteSwiftPackageProductLabels[product] = BazelLabel(package: "@\(repository)", name: product)
         }
     }

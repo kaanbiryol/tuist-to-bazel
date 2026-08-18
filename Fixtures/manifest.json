@@ -16,7 +16,7 @@
       "localPath": "Fixtures/Tuist/generated_app_with_framework_and_tests",
       "upstreamTuistPath": "examples/xcode/generated_app_with_framework_and_tests",
       "category": "conformance",
-      "featureTags": ["app", "framework", "extension", "unit-tests", "schemes"],
+      "featureTags": ["ios", "app", "framework", "app-extension", "unit-tests", "schemes"],
       "expectedStatus": "supported",
       "expectedDiagnostics": [],
       "verificationCommands": [
@@ -43,22 +43,6 @@
       ]
     },
     {
-      "name": "generated_ios_app_with_static_frameworks_with_resources",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_static_frameworks_with_resources",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_static_frameworks_with_resources",
-      "category": "conformance",
-      "featureTags": ["ios", "static-framework", "resources", "binary-framework", "fonts"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //...",
-        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
       "name": "generated_ios_app_with_static_framework_with_xcstrings",
       "localPath": "Fixtures/Tuist/generated_ios_app_with_static_framework_with_xcstrings",
       "upstreamTuistPath": "examples/xcode/generated_ios_app_with_static_framework_with_xcstrings",
@@ -71,22 +55,6 @@
         "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
         "bazelisk query //...",
         "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
-      "name": "generated_ios_app_with_static_libraries",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_static_libraries",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_static_libraries",
-      "category": "conformance",
-      "featureTags": ["ios", "static-library", "binary-library", "swift-import", "linking"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4",
-        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
       ]
     },
     {
@@ -106,95 +74,18 @@
       ]
     },
     {
-      "name": "generated_ios_app_with_sdk",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_sdk",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_sdk",
-      "category": "conformance",
-      "featureTags": ["ios", "sdk", "weak-linking", "library", "xctest", "mixed-language", "default-infoplist"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4",
-        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
       "name": "generated_ios_app_with_tests",
       "localPath": "Fixtures/Tuist/generated_ios_app_with_tests",
       "upstreamTuistPath": "examples/xcode/generated_ios_app_with_tests",
       "category": "conformance",
-      "featureTags": ["ios", "ui-tests", "unit-tests", "framework"],
+      "featureTags": ["ios", "macos", "ui-tests", "unit-tests", "framework"],
       "expectedStatus": "supported",
-      "expectedDiagnostics": [],
+      "expectedDiagnostics": ["XCTest bundles build, but simulator execution is not a CI gate because the pinned rules_apple runner can hang before test execution on Xcode 26.6"],
       "verificationCommands": [
         "tuist graph -f json --no-open --output-path <tmp>/graph",
         "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
         "bazelisk query //...",
         "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
-      "name": "generated_ios_app_with_appclip",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_appclip",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_appclip",
-      "category": "conformance",
-      "featureTags": ["ios", "appclip"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
-      "name": "generated_ios_app_with_coredata",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_coredata",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_coredata",
-      "category": "conformance",
-      "featureTags": ["ios", "core-data", "resources", "resource-synthesizers"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
-      "name": "generated_ios_app_with_extensions",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_extensions",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_extensions",
-      "category": "conformance",
-      "featureTags": ["ios", "app-extension", "messages-extension", "sticker-extension", "extensionkit", "bundle"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
-      "name": "generated_ios_app_with_headers",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_headers",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_headers",
-      "category": "conformance",
-      "featureTags": ["ios", "macos", "headers", "framework"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4",
-        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
       ]
     },
     {
@@ -217,7 +108,7 @@
       "localPath": "Fixtures/Tuist/generated_app_with_alamofire",
       "upstreamTuistPath": "examples/xcode/generated_app_with_alamofire",
       "category": "conformance",
-      "featureTags": ["spm", "external", "tests"],
+      "featureTags": ["ios", "spm", "remote-package", "tests"],
       "expectedStatus": "supported",
       "expectedDiagnostics": [],
       "verificationCommands": [
@@ -242,165 +133,6 @@
         "bazelisk query //...",
         "bazelisk build //...",
         "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
-      "name": "generated_ios_app_with_local_swift_package",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_local_swift_package",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_local_swift_package",
-      "category": "conformance",
-      "featureTags": ["ios", "spm", "local-package"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //...",
-        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
-      "name": "generated_app_with_local_spm_module_with_remote_dependencies",
-      "localPath": "Fixtures/Tuist/generated_app_with_local_spm_module_with_remote_dependencies",
-      "upstreamTuistPath": "examples/xcode/generated_app_with_local_spm_module_with_remote_dependencies",
-      "category": "conformance",
-      "featureTags": ["spm", "local-package", "remote-package"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //..."
-      ]
-    },
-    {
-      "name": "generated_ios_app_with_local_binary_swift_package",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_local_binary_swift_package",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_local_binary_swift_package",
-      "category": "conformance",
-      "featureTags": ["ios", "spm", "binary-package", "xcframework"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //...",
-        "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
-      "name": "generated_app_with_google_maps",
-      "localPath": "Fixtures/Tuist/generated_app_with_google_maps",
-      "upstreamTuistPath": "examples/xcode/generated_app_with_google_maps",
-      "category": "conformance",
-      "featureTags": ["spm", "external", "xcframework", "framework"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist install",
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //..."
-      ]
-    },
-    {
-      "name": "generated_framework_with_macro_and_plugin_packages",
-      "localPath": "Fixtures/Tuist/generated_framework_with_macro_and_plugin_packages",
-      "upstreamTuistPath": "examples/xcode/generated_framework_with_macro_and_plugin_packages",
-      "category": "conformance",
-      "featureTags": ["macos", "spm", "macro", "plugin", "external"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist install",
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //..."
-      ]
-    },
-    {
-      "name": "generated_multiplatform_app",
-      "localPath": "Fixtures/Tuist/generated_multiplatform_app",
-      "upstreamTuistPath": "examples/xcode/generated_multiplatform_app",
-      "category": "conformance",
-      "featureTags": ["multiplatform", "ios", "macos", "watchos", "conditional-dependencies"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
-      ]
-    },
-    {
-      "name": "generated_ios_app_with_watch_application",
-      "localPath": "Fixtures/Tuist/generated_ios_app_with_watch_application",
-      "upstreamTuistPath": "examples/xcode/generated_ios_app_with_watch_application",
-      "category": "conformance",
-      "featureTags": ["ios", "watchos", "watch-app", "watch-extension"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [
-        "watchOS XCTest bundles build, but rules_apple's default watchOS runner exits 1 so runtime tests are not a verification command"
-      ],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //..."
-      ]
-    },
-    {
-      "name": "generated_tvos_app_with_extensions",
-      "localPath": "Fixtures/Tuist/generated_tvos_app_with_extensions",
-      "upstreamTuistPath": "examples/xcode/generated_tvos_app_with_extensions",
-      "category": "conformance",
-      "featureTags": ["tvos", "extension", "framework"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //..."
-      ]
-    },
-    {
-      "name": "generated_tvos_app_with_uitest",
-      "localPath": "Fixtures/Tuist/generated_tvos_app_with_uitest",
-      "upstreamTuistPath": "examples/xcode/generated_tvos_app_with_uitest",
-      "category": "conformance",
-      "featureTags": ["tvos", "ui-tests"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //..."
-      ]
-    },
-    {
-      "name": "generated_visionos_app",
-      "localPath": "Fixtures/Tuist/generated_visionos_app",
-      "upstreamTuistPath": "examples/xcode/generated_visionos_app",
-      "category": "conformance",
-      "featureTags": ["visionos", "app", "unit-tests"],
-      "expectedStatus": "supported",
-      "expectedDiagnostics": [
-        "fixture AppDelegate is patched locally to avoid Xcode 26 UIScreen visionOS availability failure",
-        "visionOS XCTest target is generated as manual because rules_apple 4.5.2 fails during analysis for visionos_unit_test"
-      ],
-      "verificationCommands": [
-        "tuist graph -f json --no-open --output-path <tmp>/graph",
-        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
-        "bazelisk query //...",
-        "bazelisk build //..."
       ]
     }
   ],
