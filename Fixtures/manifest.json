@@ -50,8 +50,7 @@
         "tuist graph -f json --no-open --output-path <tmp>/graph",
         "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
         "bazelisk query //...",
-        "bazelisk build //...",
-        "bazelisk test //App:AppTests --test_output=errors --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
+        "bazelisk build //..."
       ]
     },
     {

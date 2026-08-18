@@ -118,7 +118,6 @@ swift test
 cd Examples/generated_ios_app_with_framework_and_resources
 bazelisk query //...
 bazelisk build //...
-bazelisk test //App:AppTests --test_env=REUSE_GLOBAL_SIMULATOR=1 --ios_simulator_device="iPhone 17" --ios_simulator_version=26.4
 ```
 
 ## Supported Generation
@@ -160,6 +159,7 @@ Resource handling includes `apple_resource_group`, `apple_bundle_import` for che
 - Minimum OS versions are currently fixed at iOS/tvOS 17.0, macOS 14.0, watchOS 9.0, and visionOS 1.0.
 - Standalone macOS applications, visionOS extensions, command-line tools, and Swift package registries are planned rather than supported.
 - Arbitrary build settings, scripts, and custom Tuist build rules are not modeled.
+- XCTest bundles are generated and built, but simulator execution on Xcode 26.6 is not a CI gate because the test runner pinned by stable rules_apple 4.5.x can hang before launching tests.
 
 ## License
 
