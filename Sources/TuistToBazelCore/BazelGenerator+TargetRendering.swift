@@ -679,7 +679,6 @@ extension BazelGenerator {
             """
             ios_test_runner(
                 name = "\(testRunnerName(for: platform))",
-                device_type = "iPhone 15",
             )
             """
         case .macOS, .tvOS, .watchOS, .visionOS:

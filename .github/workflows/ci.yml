@@ -52,7 +52,7 @@ jobs:
 
       - name: Test showcase
         working-directory: Examples/generated_ios_app_with_framework_and_resources
-        run: bazelisk test //App:AppTests
+        run: bazelisk test //App:AppTests --test_output=errors --ios_simulator_device="iPhone 17" --ios_simulator_version=26.4
 
   fixture-smoke:
     name: fixture smoke (${{ matrix.fixture }})

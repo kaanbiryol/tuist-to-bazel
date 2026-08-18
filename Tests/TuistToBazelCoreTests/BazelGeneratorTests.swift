@@ -469,6 +469,7 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple:ios.bzl\", \"ios_application\", \"ios_ui_test\")"))
         XCTAssertTrue(rootBuild.contains("load(\"@build_bazel_rules_apple//apple/testing/default_runner:ios_test_runner.bzl\", \"ios_test_runner\")"))
         XCTAssertTrue(rootBuild.contains("ios_test_runner(\n    name = \"_ios_test_runner\""))
+        XCTAssertFalse(rootBuild.contains("device_type ="))
         XCTAssertTrue(rootBuild.contains("ios_ui_test("))
         XCTAssertTrue(rootBuild.contains("name = \"AppUITests\""))
         XCTAssertTrue(rootBuild.contains("test_host = \":App\""))
