@@ -10,17 +10,6 @@
     "localPath": "Fixtures/Tuist",
     "syncStrategy": "selected-fixtures"
   },
-  "defaultFixture": {
-    "category": "conformance",
-    "expectedStatus": "planned",
-    "expectedDiagnostics": [
-      "selected for future conformance coverage"
-    ],
-    "verificationCommands": [
-      "tuist graph -f json --no-open --output-path <tmp>/graph",
-      "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture> --output <fixture> --force"
-    ]
-  },
   "fixtures": [
     {
       "name": "generated_app_with_framework_and_tests",
@@ -335,15 +324,6 @@
       ]
     },
     {
-      "name": "generated_app_with_registry_and_alamofire",
-      "localPath": "Fixtures/Tuist/generated_app_with_registry_and_alamofire",
-      "upstreamTuistPath": "examples/xcode/generated_app_with_registry_and_alamofire",
-      "category": "conformance",
-      "featureTags": ["spm", "registry", "external"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["SwiftPM registry support is not automated yet"]
-    },
-    {
       "name": "generated_multiplatform_app",
       "localPath": "Fixtures/Tuist/generated_multiplatform_app",
       "upstreamTuistPath": "examples/xcode/generated_multiplatform_app",
@@ -422,33 +402,6 @@
         "bazelisk query //...",
         "bazelisk build //..."
       ]
-    },
-    {
-      "name": "generated_macos_app_with_extensions",
-      "localPath": "Fixtures/Tuist/generated_macos_app_with_extensions",
-      "upstreamTuistPath": "examples/xcode/generated_macos_app_with_extensions",
-      "category": "conformance",
-      "featureTags": ["macos", "app-extension", "extensionkit", "copy-files", "entitlements"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["macOS extension coverage is not automated yet"]
-    },
-    {
-      "name": "generated_command_line_tool_with_dynamic_library",
-      "localPath": "Fixtures/Tuist/generated_command_line_tool_with_dynamic_library",
-      "upstreamTuistPath": "examples/xcode/generated_command_line_tool_with_dynamic_library",
-      "category": "conformance",
-      "featureTags": ["macos", "command-line-tool", "dynamic-library"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["command line product coverage is not automated yet"]
-    },
-    {
-      "name": "generated_multiplatform_\u00b5Feature_unit_tests_with_explicit_dependencies",
-      "localPath": "Fixtures/Tuist/generated_multiplatform_\u00b5Feature_unit_tests_with_explicit_dependencies",
-      "upstreamTuistPath": "examples/xcode/generated_multiplatform_\u00b5Feature_unit_tests_with_explicit_dependencies",
-      "category": "conformance",
-      "featureTags": ["multiplatform", "microfeature", "unit-tests", "explicit-dependencies"],
-      "expectedStatus": "planned",
-      "expectedDiagnostics": ["microfeature workspace coverage is not automated yet"]
     }
   ],
   "showcases": [

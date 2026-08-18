@@ -35,16 +35,16 @@ The CLI writes:
 
 ## Fixture Strategy
 
-Tuist fixture coverage is pinned in `Fixtures/manifest.json`. The manifest records the upstream Tuist repository, commit, and selected fixture names. `scripts/update-tuist-fixtures.sh` uses git sparse checkout to copy only those upstream `examples/xcode` fixtures into `Fixtures/Tuist`.
+Tuist fixture coverage is intentionally bounded and pinned in `Fixtures/manifest.json`. Its 25 selected fixtures are a frozen regression corpus for common project structures, primarily generic iOS application migrations; the goal is not to mirror or eventually support every upstream Tuist fixture. The manifest records the upstream Tuist repository, commit, and selected fixture names. `scripts/update-tuist-fixtures.sh` uses git sparse checkout to refresh only those upstream `examples/xcode` fixtures in `Fixtures/Tuist`.
 
-This repo intentionally does not use a git submodule for Tuist fixtures. The synced fixture corpus is committed as ordinary files, which keeps CI and local setup simple: clone this repo and the pinned fixtures are already present. Refreshing fixtures is an explicit update step that produces normal reviewable diffs.
+This repo intentionally does not use a git submodule for Tuist fixtures. The synced fixture corpus is committed as ordinary files, which keeps CI and local setup simple: clone this repo and the pinned fixtures are already present. Refreshing the frozen set is an explicit update step that produces normal reviewable diffs; it does not discover or add new Tuist fixtures.
 
 The copied Tuist fixture corpus is third-party MIT-licensed test data. The pinned upstream commit and per-fixture source paths are recorded in `Fixtures/manifest.json`, each synced fixture receives a `.upstream.json`, and the upstream copyright notice is preserved in `NOTICE`.
 
 Fixture directories have separate roles:
 
 - `Examples/`: polished, fully supported showcases with generated Bazel output checked in.
-- `Fixtures/Tuist/`: curated upstream Tuist `examples/xcode` fixtures used for migration conformance work.
+- `Fixtures/Tuist/`: the fixed, curated upstream Tuist `examples/xcode` regression corpus used for migration conformance work.
 
 The main example is checked in at `Examples/generated_ios_app_with_framework_and_resources`. It is sourced from Tuist's `examples/xcode/generated_ios_app_with_framework_and_resources` fixture at the manifest commit, then converted into a Bazel-compatible project.
 
@@ -72,7 +72,7 @@ The broader capability map is:
 | watchOS, tvOS, and visionOS products | `generated_ios_app_with_watch_application`, `generated_tvos_app_with_extensions`, `generated_tvos_app_with_uitest`, `generated_visionos_app` |
 | Multiplatform conditional dependencies | `generated_multiplatform_app` |
 
-`Fixtures/manifest.json` contains the complete fixture list, feature tags, support status, expected diagnostics, and verification commands.
+`Fixtures/manifest.json` contains the complete supported fixture set, feature tags, expected diagnostics, and verification commands.
 
 ### Verifying fixtures
 
@@ -147,7 +147,7 @@ Dependency generation includes:
 
 Resource handling includes `apple_resource_group`, `apple_bundle_import` for checked-in `.bundle` directories, `apple_core_data_model` for Core Data generated sources, generated `Bundle.module` bridges including for string catalogs, and narrow Tuist-style accessors for assets, strings, string dictionaries, plists, fonts, and Core Data entity classes.
 
-`Fixtures/manifest.json` is the support contract. Entries marked `supported` have executable graph, conversion, query, and build plans; entries marked `planned` document intended coverage without claiming support.
+`Fixtures/manifest.json` is the fixture support contract. Every selected entry is supported and has executable graph, conversion, query, and build plans. Features omitted from the corpus are not an implied roadmap.
 
 ## Current Limits
 
@@ -157,7 +157,7 @@ Resource handling includes `apple_resource_group`, `apple_bundle_import` for che
 - ODR resource tags are reported as warnings and are not represented in Bazel output.
 - Resource accessor synthesis is intentionally narrow and aimed at common Tuist-generated symbols.
 - Minimum OS versions are currently fixed at iOS/tvOS 17.0, macOS 14.0, watchOS 9.0, and visionOS 1.0.
-- Standalone macOS applications, visionOS extensions, command-line tools, and Swift package registries are planned rather than supported.
+- Standalone macOS applications, visionOS extensions, command-line tools, and Swift package registries are outside the intended generic iOS migration scope and are not tracked as planned fixtures.
 - Arbitrary build settings, scripts, and custom Tuist build rules are not modeled.
 - XCTest bundles are generated and built, but simulator execution on Xcode 26.6 is not a CI gate because the test runner pinned by stable rules_apple 4.5.x can hang before launching tests.
 

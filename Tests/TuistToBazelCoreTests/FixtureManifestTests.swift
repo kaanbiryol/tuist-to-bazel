@@ -17,7 +17,7 @@ final class FixtureManifestTests: XCTestCase {
         let corpusPrefix = "\(manifest.corpus.localPath)/"
         let selectedFixtures = manifest.fixtures.filter { $0.localPath.hasPrefix(corpusPrefix) }
 
-        XCTAssertEqual(selectedFixtures.count, 29)
+        XCTAssertEqual(selectedFixtures.count, 25)
 
         for fixture in selectedFixtures {
             let fixtureURL = repoRoot.appendingPathComponent(fixture.localPath)
@@ -57,11 +57,12 @@ final class FixtureManifestTests: XCTestCase {
         }
     }
 
-    func testSupportedFixturesHaveExecutableVerificationPlans() throws {
-        let supportedFixtures = try loadManifest().fixtures.filter { $0.expectedStatus == "supported" }
+    func testSelectedFixturesAreSupportedAndHaveExecutableVerificationPlans() throws {
+        let fixtures = try loadManifest().fixtures
 
-        XCTAssertFalse(supportedFixtures.isEmpty)
-        for fixture in supportedFixtures {
+        XCTAssertFalse(fixtures.isEmpty)
+        for fixture in fixtures {
+            XCTAssertEqual(fixture.expectedStatus, "supported", "Unexpected fixture status for \(fixture.name)")
             let commands = fixture.verificationCommands ?? []
             XCTAssertFalse(commands.isEmpty, "Missing verification plan for \(fixture.name)")
             XCTAssertTrue(
