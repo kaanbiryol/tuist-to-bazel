@@ -118,7 +118,7 @@ swift test
 cd Examples/generated_ios_app_with_framework_and_resources
 bazelisk query //...
 bazelisk build //...
-bazelisk test //App:AppTests --ios_simulator_device="iPhone 17" --ios_simulator_version=26.4
+bazelisk test //App:AppTests --test_env=REUSE_GLOBAL_SIMULATOR=1 --ios_simulator_device="iPhone 17" --ios_simulator_version=26.4
 ```
 
 ## Supported Generation

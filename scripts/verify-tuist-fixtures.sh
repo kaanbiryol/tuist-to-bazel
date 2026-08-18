@@ -19,6 +19,7 @@ Usage: scripts/verify-tuist-fixtures.sh [--skip-tests] <fixture>...
 Runs each supported fixture's verificationCommands against an isolated copy.
 Set TUIST_TO_BAZEL_BIN to use a converter outside .build/release.
 Set TUIST_BIN to use a specific Tuist executable.
+Set REUSE_GLOBAL_SIMULATOR=1 to wait for and reuse a booted iOS simulator.
 USAGE
 }
 
@@ -183,6 +184,8 @@ PY
       verification_command="\"$tuist_path\" ${verification_command#tuist }"
     elif [[ "$verification_command" == "tuist-to-bazel "* ]]; then
       verification_command="\"$tool_path\" ${verification_command#tuist-to-bazel }"
+    elif [[ "$verification_command" == "bazelisk test "* && -n "${REUSE_GLOBAL_SIMULATOR:-}" ]]; then
+      verification_command="$verification_command --test_env=REUSE_GLOBAL_SIMULATOR=$REUSE_GLOBAL_SIMULATOR"
     fi
 
     echo "+ $verification_command"

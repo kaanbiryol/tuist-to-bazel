@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 30
     env:
       USE_BAZEL_VERSION: 9.1.0
+      REUSE_GLOBAL_SIMULATOR: "1"
 
     steps:
       - name: Check out repository
@@ -52,7 +53,7 @@ jobs:
 
       - name: Test showcase
         working-directory: Examples/generated_ios_app_with_framework_and_resources
-        run: bazelisk test //App:AppTests --test_output=errors --ios_simulator_device="iPhone 17" --ios_simulator_version=26.4
+        run: bazelisk test //App:AppTests --test_output=errors --test_env=REUSE_GLOBAL_SIMULATOR=1 --ios_simulator_device="iPhone 17" --ios_simulator_version=26.4
 
   fixture-smoke:
     name: fixture smoke (${{ matrix.fixture }})
@@ -61,6 +62,7 @@ jobs:
     timeout-minutes: 45
     env:
       USE_BAZEL_VERSION: 9.1.0
+      REUSE_GLOBAL_SIMULATOR: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -110,6 +112,7 @@ jobs:
     timeout-minutes: 60
     env:
       USE_BAZEL_VERSION: 9.1.0
+      REUSE_GLOBAL_SIMULATOR: "1"
     strategy:
       fail-fast: false
       max-parallel: 4
