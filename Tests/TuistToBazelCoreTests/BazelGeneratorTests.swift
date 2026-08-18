@@ -122,11 +122,18 @@ final class BazelGeneratorTests: XCTestCase {
         try """
         {
           "object": {
-            "pins": [{
-              "package": "RxSwift",
-              "repositoryURL": "https://github.com/ReactiveX/RxSwift",
-              "state": { "branch": null, "revision": "abc123", "version": "5.0.1" }
-            }]
+            "pins": [
+              {
+                "package": "RxSwift",
+                "repositoryURL": "https://github.com/ReactiveX/RxSwift",
+                "state": { "branch": null, "revision": "abc123", "version": "5.0.1" }
+              },
+              {
+                "package": "swift-syntax",
+                "repositoryURL": "https://github.com/swiftlang/swift-syntax.git",
+                "state": { "branch": null, "revision": "def456", "version": "603.0.2" }
+              }
+            ]
           },
           "version": 1
         }
@@ -165,6 +172,14 @@ final class BazelGeneratorTests: XCTestCase {
                 .contains(".package(url: \"https://github.com/ReactiveX/RxSwift\", .upToNextMajor(from: \"5.0.0\"))")
         )
         XCTAssertTrue(try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.resolved"]).contains("\"identity\" : \"rxswift\""))
+        XCTAssertTrue(
+            try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.resolved"])
+                .contains("\"identity\" : \"swift-syntax\"")
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(rendered[".bazel/SwiftPackages/Package.resolved"])
+                .contains("\"identity\" : \"swift_syntax\"")
+        )
     }
 
     func testGeneratesStaticAndDynamicXCFrameworkImports() throws {

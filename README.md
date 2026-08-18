@@ -65,7 +65,7 @@ Run `swift test` after changing the conversion rules. Prefer small overrides tha
 
 ## Fixture Strategy
 
-Tuist fixture coverage is intentionally bounded and pinned in `Fixtures/manifest.json`. Its 8 selected fixtures are a frozen regression corpus for common Swift iOS and macOS project structures; the goal is not to mirror or eventually support every upstream Tuist fixture. The manifest records the upstream Tuist repository, commit, and selected fixture names. `scripts/update-tuist-fixtures.sh` uses git sparse checkout to refresh only those upstream `examples/xcode` fixtures in `Fixtures/Tuist`.
+Tuist fixture coverage is intentionally bounded and pinned in `Fixtures/manifest.json`. Its 8 selected upstream fixtures are a frozen regression corpus for common Swift iOS and macOS project structures, supplemented by 2 small repository-owned fixtures for retained products that the upstream corpus does not isolate. The goal is not to mirror or eventually support every upstream Tuist fixture. The manifest records the upstream Tuist repository, commit, and selected fixture names. `scripts/update-tuist-fixtures.sh` uses git sparse checkout to refresh only those upstream `examples/xcode` fixtures in `Fixtures/Tuist`.
 
 This repo intentionally does not use a git submodule for Tuist fixtures. The synced fixture corpus is committed as ordinary files, which keeps CI and local setup simple: clone this repo and the pinned fixtures are already present. Refreshing the frozen set is an explicit update step that produces normal reviewable diffs; it does not discover or add new Tuist fixtures.
 
@@ -75,6 +75,7 @@ Fixture directories have separate roles:
 
 - `Examples/`: polished, fully supported showcases with generated Bazel output checked in.
 - `Fixtures/Tuist/`: the fixed, curated upstream Tuist `examples/xcode` regression corpus used for migration conformance work.
+- `Fixtures/Focused/`: minimal repository-owned projects for narrow retained-feature contracts.
 
 The main example is checked in at `Examples/generated_ios_app_with_framework_and_resources`. It is sourced from Tuist's `examples/xcode/generated_ios_app_with_framework_and_resources` fixture at the manifest commit, then converted into a Bazel-compatible project.
 
@@ -87,6 +88,8 @@ For common dependency and platform questions, start with these fixtures:
 | Swift packages | `generated_ios_app_with_remote_swift_package` | Remote package products and generated SwiftPM support files |
 | Binary dependencies | `generated_ios_app_with_xcframeworks` | Dynamic and static XCFrameworks and linker settings |
 | iOS and macOS | `generated_ios_app_with_tests` | Applications, frameworks, tests, and both retained platforms |
+| Dynamic Swift libraries | `focused_ios_dynamic_library` | Direct `dynamicLibrary` conversion and build |
+| Swift macros | `focused_macos_macro_plugin` | Macro target, compiler plugin, remote SwiftSyntax products, and a consuming framework |
 
 The broader capability map is:
 
@@ -97,8 +100,9 @@ The broader capability map is:
 | Static frameworks and direct binary imports | `generated_ios_app_with_static_framework_with_xcstrings`, `generated_ios_app_with_xcframeworks` |
 | Remote Swift packages | `generated_app_with_alamofire`, `generated_ios_app_with_remote_swift_package` |
 | Buildable folders and asset catalogs | `generated_ios_app_with_framework_buildable_folders_and_xcassets` |
+| Dynamic libraries and macro compiler plugins | `focused_ios_dynamic_library`, `focused_macos_macro_plugin` |
 
-Swift macro targets and remote package compiler plugins remain supported through focused generator tests. The former upstream macro fixture is intentionally excluded because it primarily exercised local `Package.swift` translation and transitive mixed-language packages, both outside this tool's scope.
+The former upstream macro fixture is intentionally excluded because it primarily exercised local `Package.swift` translation and transitive mixed-language packages, both outside this tool's scope. The focused macro fixture covers the retained macro/compiler-plugin path without those unrelated features.
 
 `Fixtures/manifest.json` contains the complete supported fixture set, feature tags, expected diagnostics, and verification commands.
 

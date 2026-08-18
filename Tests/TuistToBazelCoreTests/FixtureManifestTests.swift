@@ -57,6 +57,29 @@ final class FixtureManifestTests: XCTestCase {
         }
     }
 
+    func testFocusedFixturesRemainSmallAndRepositoryOwned() throws {
+        let fixtures = try loadManifest().fixtures
+            .filter { $0.localPath.hasPrefix("Fixtures/Focused/") }
+
+        XCTAssertEqual(
+            fixtures.map(\.name).sorted(),
+            ["focused_ios_dynamic_library", "focused_macos_macro_plugin"]
+        )
+        for fixture in fixtures {
+            let fixtureURL = repoRoot.appendingPathComponent(fixture.localPath)
+            var isDirectory = ObjCBool(false)
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: fixtureURL.path, isDirectory: &isDirectory)
+                    && isDirectory.boolValue,
+                "Missing focused fixture: \(fixture.name)"
+            )
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: fixtureURL.appendingPathComponent(".upstream.json").path),
+                "Focused fixtures should not carry upstream sync metadata: \(fixture.name)"
+            )
+        }
+    }
+
     func testSelectedFixturesAreSupportedAndHaveExecutableVerificationPlans() throws {
         let fixtures = try loadManifest().fixtures
 

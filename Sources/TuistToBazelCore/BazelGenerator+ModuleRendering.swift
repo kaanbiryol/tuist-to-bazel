@@ -103,7 +103,7 @@ extension BazelGenerator {
                 normalizedState[key] = value
             }
             return [
-                "identity": packageIdentityName(for: package),
+                "identity": package.lowercased(),
                 "kind": "remoteSourceControl",
                 "location": location,
                 "state": normalizedState,

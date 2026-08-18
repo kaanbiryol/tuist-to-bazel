@@ -134,6 +134,34 @@
         "bazelisk build //...",
         "bazelisk test //... --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
       ]
+    },
+    {
+      "name": "focused_ios_dynamic_library",
+      "localPath": "Fixtures/Focused/focused_ios_dynamic_library",
+      "category": "focused",
+      "featureTags": ["ios", "dynamic-library", "swift"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //:DynamicLibrary --ios_simulator_device=\"iPhone 17\" --ios_simulator_version=26.4"
+      ]
+    },
+    {
+      "name": "focused_macos_macro_plugin",
+      "localPath": "Fixtures/Focused/focused_macos_macro_plugin",
+      "category": "focused",
+      "featureTags": ["macos", "macro", "compiler-plugin", "remote-package"],
+      "expectedStatus": "supported",
+      "expectedDiagnostics": [],
+      "verificationCommands": [
+        "tuist graph -f json --no-open --output-path <tmp>/graph",
+        "tuist-to-bazel convert --graph <tmp>/graph/graph.json --root <fixture-copy> --output <fixture-copy> --force",
+        "bazelisk query //...",
+        "bazelisk build //:MacroClient"
+      ]
     }
   ],
   "showcases": [
