@@ -1,13 +1,17 @@
 # tuist-to-bazel
 
+[![CI](https://github.com/kaanbiryol/tuist-to-bazel/actions/workflows/ci.yml/badge.svg)](https://github.com/kaanbiryol/tuist-to-bazel/actions/workflows/ci.yml)
+
 `tuist-to-bazel` is a Swift command line tool that converts a Tuist graph JSON into Bazel module and BUILD files.
 
 The converter intentionally decodes Tuist's graph with narrow local DTOs instead of depending on Tuist/XcodeGraph internals. The input contract is the JSON produced by `tuist graph`; the output is ordinary Bazel files that can be inspected, edited, and built directly.
 
+See the [generated iOS application showcase](Examples/generated_ios_app_with_framework_and_resources) for a complete example of the converter's output.
+
 ## Requirements
 
 - Swift 5.10+ / Xcode
-- [Tuist](https://tuist.io) 4.169.2+
+- [Tuist](https://tuist.io) 4.169.2 (pinned and tested)
 - [Bazelisk](https://github.com/bazelbuild/bazelisk)
 
 ## Build from source
