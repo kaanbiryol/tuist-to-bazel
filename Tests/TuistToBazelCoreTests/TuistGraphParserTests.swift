@@ -115,6 +115,10 @@ final class TuistGraphParserTests: XCTestCase {
             graph.remoteSwiftPackages,
             [TuistRemoteSwiftPackage(url: "https://github.com/ReactiveX/RxSwift", requirement: .upToNextMajor("5.0.0"))]
         )
+        XCTAssertEqual(
+            graph.remoteSwiftPackagesByProjectPath["/tmp/App"],
+            [TuistRemoteSwiftPackage(url: "https://github.com/ReactiveX/RxSwift", requirement: .upToNextMajor("5.0.0"))]
+        )
     }
 
     func testParsesPackagePluginDependencies() throws {

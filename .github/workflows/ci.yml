@@ -64,8 +64,8 @@ jobs:
           - generated_app_with_framework_and_tests
           - generated_ios_app_with_framework_and_resources
           - generated_ios_app_with_xcframeworks
-          - generated_app_with_local_spm_module_with_remote_dependencies
-          - generated_multiplatform_app
+          - generated_ios_app_with_remote_swift_package
+          - generated_ios_app_with_tests
 
     steps:
       - name: Check out repository

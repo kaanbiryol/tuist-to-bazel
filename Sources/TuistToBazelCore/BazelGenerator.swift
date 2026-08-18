@@ -12,7 +12,7 @@ struct BazelGenerator {
     var targetsWithTestConsumers: Set<String> = []
     var extensionSafeTargets: Set<String> = []
     var remoteSwiftPackageRepositories: [String] = []
-    var remoteSwiftPackageProductLabels: [String: BazelLabel] = [:]
+    var remoteSwiftPackageProductLabelsByProjectPath: [String: [String: BazelLabel]] = [:]
 
     init(graph: TuistGraph, paths: PathContext) {
         self.graph = graph

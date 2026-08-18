@@ -19,7 +19,7 @@ extension BazelGenerator {
             resourceAccessors: resourceAccessors,
             targetsByName: targetsByName,
             targetsByPathAndName: targetsByPathAndName,
-            remoteSwiftPackageProductLabels: remoteSwiftPackageProductLabels
+            remoteSwiftPackageProductLabelsByProjectPath: remoteSwiftPackageProductLabelsByProjectPath
         )
     }
 

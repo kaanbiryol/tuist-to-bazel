@@ -12,11 +12,19 @@ struct TuistGraphParser {
             throw ConversionError.invalidGraph("missing projects")
         }
 
+        let projects = try parseProjects(projectsValue)
+        let remoteSwiftPackagesByProjectPath = parseRemoteSwiftPackagesByProjectPath(
+            rootObject["packages"],
+            projectPaths: Set(projects.map(\.path))
+        )
         return TuistGraph(
             name: name,
-            projects: try parseProjects(projectsValue),
+            projects: projects,
             localSwiftPackagePaths: parseLocalSwiftPackages(rootObject["packages"]),
-            remoteSwiftPackages: parseRemoteSwiftPackages(rootObject["packages"])
+            remoteSwiftPackages: orderedUnique(
+                projects.flatMap { remoteSwiftPackagesByProjectPath[$0.path] ?? [] }
+            ),
+            remoteSwiftPackagesByProjectPath: remoteSwiftPackagesByProjectPath
         )
     }
 
@@ -276,10 +284,38 @@ struct TuistGraphParser {
         }
     }
 
-    private func parseRemoteSwiftPackages(_ value: JSONValue?) -> [TuistRemoteSwiftPackage] {
-        var packages: [TuistRemoteSwiftPackage] = []
-        collectRemoteSwiftPackages(value, into: &packages)
-        return orderedUnique(packages)
+    private func parseRemoteSwiftPackagesByProjectPath(
+        _ value: JSONValue?,
+        projectPaths: Set<String>
+    ) -> [String: [TuistRemoteSwiftPackage]] {
+        guard let value else { return [:] }
+        var packagesByProjectPath: [String: [TuistRemoteSwiftPackage]] = [:]
+
+        if let array = value.arrayValue, array.count.isMultiple(of: 2) {
+            var index = 0
+            while index < array.count {
+                if let projectPath = array[index].stringValue, projectPaths.contains(projectPath) {
+                    var packages: [TuistRemoteSwiftPackage] = []
+                    collectRemoteSwiftPackages(array[index + 1], into: &packages)
+                    packagesByProjectPath[projectPath, default: []].append(contentsOf: packages)
+                }
+                index += 2
+            }
+        } else if let object = value.objectValue {
+            for (projectPath, packagesValue) in object where projectPaths.contains(projectPath) {
+                var packages: [TuistRemoteSwiftPackage] = []
+                collectRemoteSwiftPackages(packagesValue, into: &packages)
+                packagesByProjectPath[projectPath, default: []].append(contentsOf: packages)
+            }
+
+            if packagesByProjectPath.isEmpty, projectPaths.count == 1, let projectPath = projectPaths.first {
+                var packages: [TuistRemoteSwiftPackage] = []
+                collectRemoteSwiftPackages(value, into: &packages)
+                packagesByProjectPath[projectPath] = packages
+            }
+        }
+
+        return packagesByProjectPath.mapValues(orderedUnique)
     }
 
     private func collectRemoteSwiftPackages(_ value: JSONValue?, into packages: inout [TuistRemoteSwiftPackage]) {

@@ -5,6 +5,7 @@ struct TuistGraph {
     let projects: [TuistProject]
     var localSwiftPackagePaths: [String] = []
     var remoteSwiftPackages: [TuistRemoteSwiftPackage] = []
+    var remoteSwiftPackagesByProjectPath: [String: [TuistRemoteSwiftPackage]] = [:]
 }
 
 struct TuistProject {

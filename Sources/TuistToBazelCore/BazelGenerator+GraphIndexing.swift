@@ -97,26 +97,75 @@ extension BazelGenerator {
             allRemoteSwiftPackages().map { remoteSwiftPackageRepositoryName(for: $0.url) }
         ).sorted()
 
-        let packageDependencyProducts = graph.projects
-            .flatMap(\.targets)
-            .flatMap(\.dependencies)
-            .compactMap { dependency -> String? in
-                guard case let .package(product, _) = dependency else {
-                    return nil
-                }
-                return product
+        for project in graph.projects {
+            let products = orderedUnique(
+                project.targets
+                    .flatMap(\.dependencies)
+                    .compactMap { dependency -> String? in
+                        guard case let .package(product, _) = dependency else {
+                            return nil
+                        }
+                        return product
+                    }
+            )
+            let packages = remoteSwiftPackages(forProjectPath: project.path)
+            let labels = remoteSwiftPackageLabels(products: products, packages: packages)
+            if !labels.isEmpty {
+                remoteSwiftPackageProductLabelsByProjectPath[project.path] = labels
             }
-        guard allRemoteSwiftPackages().count == 1,
-              let repository = remoteSwiftPackageRepositories.first else {
-            if allRemoteSwiftPackages().count > 1 {
-                warnings.append("remote Swift package products are not generated because product-to-package mapping is ambiguous")
-            }
-            return
+        }
+    }
+
+    func remoteSwiftPackages(forProjectPath projectPath: String) -> [TuistRemoteSwiftPackage] {
+        if let scoped = graph.remoteSwiftPackagesByProjectPath[projectPath], !scoped.isEmpty {
+            return scoped
+        }
+        if graph.remoteSwiftPackagesByProjectPath.isEmpty || allRemoteSwiftPackages().count == 1 {
+            return allRemoteSwiftPackages()
+        }
+        return []
+    }
+
+    func remoteSwiftPackageLabels(
+        products: [String],
+        packages: [TuistRemoteSwiftPackage]
+    ) -> [String: BazelLabel] {
+        guard !products.isEmpty, !packages.isEmpty else { return [:] }
+
+        if packages.count == 1, let package = packages.first {
+            let repository = remoteSwiftPackageRepositoryName(for: package.url)
+            return Dictionary(uniqueKeysWithValues: products.map {
+                ($0, BazelLabel(package: "@\(repository)", name: $0))
+            })
         }
 
-        for product in orderedUnique(packageDependencyProducts) {
-            remoteSwiftPackageProductLabels[product] = BazelLabel(package: "@\(repository)", name: product)
+        var result: [String: BazelLabel] = [:]
+
+        for product in products {
+            let productIdentity = packageIdentityName(for: product)
+            let comparableProduct = comparablePackageName(productIdentity)
+            let matches = packages.filter { package in
+                let repository = remoteSwiftPackageRepositoryName(for: package.url)
+                let packageIdentity = String(repository.dropFirst("swiftpkg_".count))
+                let comparablePackage = comparablePackageName(packageIdentity)
+                return packageIdentity == productIdentity
+                    || comparablePackage.hasSuffix(comparableProduct)
+                    || comparableProduct.hasSuffix(comparablePackage)
+            }
+            guard matches.count == 1, let package = matches.first else {
+                continue
+            }
+            let repository = remoteSwiftPackageRepositoryName(for: package.url)
+            result[product] = BazelLabel(package: "@\(repository)", name: product)
         }
+        return result
+    }
+
+    func comparablePackageName(_ value: String) -> String {
+        value.lowercased().unicodeScalars
+            .filter(CharacterSet.alphanumerics.contains)
+            .map(String.init)
+            .joined()
     }
 
     mutating func renderRemoteSwiftPackageSupportFiles() throws {

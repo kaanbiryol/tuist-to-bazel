@@ -9,7 +9,7 @@ struct BazelDependencyResolver {
     let resourceAccessors: ResourceAccessorGenerator
     let targetsByName: [String: TuistTarget]
     let targetsByPathAndName: [String: TuistTarget]
-    let remoteSwiftPackageProductLabels: [String: BazelLabel]
+    let remoteSwiftPackageProductLabelsByProjectPath: [String: [String: BazelLabel]]
     var warnings: [String] = []
 
     mutating func resolvedDependencies(for target: TuistTarget, packagePath: String) throws -> ResolvedDependencies {
@@ -51,7 +51,7 @@ struct BazelDependencyResolver {
 
             switch dependency {
             case let .package(product, kind):
-                if let label = remoteSwiftPackageProductLabels[product] {
+                if let label = remoteSwiftPackageProductLabelsByProjectPath[target.projectPath]?[product] {
                     switch kind {
                     case .runtime:
                         result.codeDeps.append(label)

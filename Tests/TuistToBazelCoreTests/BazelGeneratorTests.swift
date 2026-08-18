@@ -182,6 +182,72 @@ final class BazelGeneratorTests: XCTestCase {
         )
     }
 
+    func testGeneratesProjectScopedRemoteSwiftPackageDependencies() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-project-scoped-spm-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try #"{"pins":[],"version":2}"#.write(
+            to: root.appendingPathComponent("Package.resolved"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let networkPath = root.appendingPathComponent("Kits/NetworkManagerKit", isDirectory: true)
+        let featurePath = root.appendingPathComponent("Modules/Feature", isDirectory: true)
+        let alamofire = TuistRemoteSwiftPackage(
+            url: "https://github.com/Alamofire/Alamofire.git",
+            requirement: .upToNextMajor("5.10.0")
+        )
+        let snapKit = TuistRemoteSwiftPackage(
+            url: "https://github.com/SnapKit/SnapKit.git",
+            requirement: .upToNextMajor("5.0.1")
+        )
+        let dependencyKit = TuistRemoteSwiftPackage(
+            url: "https://github.com/example/HPDependencyKit.git",
+            requirement: .upToNextMajor("1.0.0")
+        )
+        let networkTarget = makeTarget(
+            "NetworkManagerKit",
+            product: .staticFramework,
+            root: networkPath,
+            dependencies: [.package(product: "Alamofire")]
+        )
+        let featureTarget = makeTarget(
+            "Feature",
+            product: .staticFramework,
+            root: featurePath,
+            dependencies: [
+                .package(product: "SnapKit"),
+                .package(product: "DependencyKit"),
+            ]
+        )
+        let graph = TuistGraph(
+            name: "ProjectScopedSPMFixture",
+            projects: [
+                TuistProject(name: "NetworkManagerKit", path: networkPath.path, targets: [networkTarget]),
+                TuistProject(name: "Feature", path: featurePath.path, targets: [featureTarget]),
+            ],
+            remoteSwiftPackages: [alamofire, snapKit, dependencyKit],
+            remoteSwiftPackagesByProjectPath: [
+                networkPath.path: [alamofire],
+                featurePath.path: [snapKit, dependencyKit],
+            ]
+        )
+        var generator = BazelGenerator(graph: graph, paths: PathContext(root: root, output: root))
+
+        let rendered = try generator.render()
+        let networkBuild = try XCTUnwrap(rendered.files["Kits/NetworkManagerKit/BUILD.bazel"])
+        let featureBuild = try XCTUnwrap(rendered.files["Modules/Feature/BUILD.bazel"])
+
+        XCTAssertTrue(networkBuild.contains("@swiftpkg_alamofire//:Alamofire"))
+        XCTAssertFalse(networkBuild.contains("@swiftpkg_snapkit"))
+        XCTAssertTrue(featureBuild.contains("@swiftpkg_snapkit//:SnapKit"))
+        XCTAssertTrue(featureBuild.contains("@swiftpkg_hpdependencykit//:DependencyKit"))
+        XCTAssertFalse(rendered.warnings.contains { $0.contains("package dependency") })
+    }
+
     func testGeneratesStaticAndDynamicXCFrameworkImports() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
