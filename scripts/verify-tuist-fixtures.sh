@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest="$repo_root/Fixtures/manifest.json"
 python_bin="${PYTHON:-python3}"
 tool_path="${TUIST_TO_BAZEL_BIN:-$repo_root/.build/release/tuist-to-bazel}"
+tuist_path="${TUIST_BIN:-}"
 skip_tests=false
 all_supported=false
 fixtures=()
@@ -17,6 +18,7 @@ Usage: scripts/verify-tuist-fixtures.sh [--skip-tests] <fixture>...
 
 Runs each supported fixture's verificationCommands against an isolated copy.
 Set TUIST_TO_BAZEL_BIN to use a converter outside .build/release.
+Set TUIST_BIN to use a specific Tuist executable.
 USAGE
 }
 
@@ -80,12 +82,23 @@ fi
   exit 2
 }
 
-for dependency in "$python_bin" tuist bazelisk; do
+for dependency in "$python_bin" bazelisk; do
   command -v "$dependency" >/dev/null 2>&1 || {
     echo "error: required command not found: $dependency" >&2
     exit 1
   }
 done
+
+if [[ -z "$tuist_path" ]] && command -v mise >/dev/null 2>&1; then
+  tuist_path="$(mise which tuist 2>/dev/null || true)"
+fi
+if [[ -z "$tuist_path" ]]; then
+  tuist_path="$(command -v tuist || true)"
+fi
+[[ -n "$tuist_path" && -x "$tuist_path" ]] || {
+  echo "error: required command not found: tuist" >&2
+  exit 1
+}
 
 [[ -x "$tool_path" ]] || {
   echo "error: converter executable not found at $tool_path" >&2
@@ -166,7 +179,9 @@ PY
     verification_command="${verification_command//<tmp>/$work_dir}"
     verification_command="${verification_command//<fixture-copy>/$fixture_copy}"
     verification_command="${verification_command//<fixture>/$fixture_copy}"
-    if [[ "$verification_command" == "tuist-to-bazel "* ]]; then
+    if [[ "$verification_command" == "tuist "* ]]; then
+      verification_command="\"$tuist_path\" ${verification_command#tuist }"
+    elif [[ "$verification_command" == "tuist-to-bazel "* ]]; then
       verification_command="\"$tool_path\" ${verification_command#tuist-to-bazel }"
     fi
 
