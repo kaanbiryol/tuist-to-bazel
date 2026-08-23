@@ -8,7 +8,7 @@ extension BazelGenerator {
             """
         apple_resource_bundle(
             name = "\(target.name)",
-            bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+            bundle_id = "\(resolvedBundleId(for: target))",
         \(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    resources = \(Starlark.exprList(resources.resources, indent: 4)),
             structured_resources = \(Starlark.exprList(resources.structuredResources, indent: 4)),
         )
@@ -50,12 +50,23 @@ extension BazelGenerator {
     ) throws -> String {
         let srcs = try sourceLabels(for: target, packagePath: packagePath)
         let deps = extraDeps
-        let data = resourceGroupLabelIfNeeded(target, packagePath: packagePath)
-        let testableCopts = targetsWithTestConsumers.contains(target.name) || testonly ? ["-enable-testing"] : []
+        // Dynamic framework resources belong to the framework bundle itself. Attaching
+        // them to its backing library makes rules_apple flatten every transitive
+        // framework resource into a consuming framework, where common localized file
+        // names such as Localizable.strings collide.
+        let data = target.product == .framework
+            ? []
+            : resourceGroupLabelIfNeeded(target, packagePath: packagePath)
+        var compilerOptions = targetsWithTestConsumers.contains(target.name) || testonly ? ["-enable-testing"] : []
+        if let swiftLanguageMode = target.swiftLanguageMode {
+            compilerOptions.append(contentsOf: ["-swift-version", swiftLanguageMode])
+        }
         let developerSearchPath = testonly || includeDeveloperSearchPaths ? "    always_include_developer_search_paths = True,\n" : ""
         let testonlyAttribute = testonly ? "    testonly = True,\n" : ""
         let tagsAttribute = manual ? "    tags = [\"manual\"],\n" : ""
-        let coptsAttribute = testableCopts.isEmpty ? "" : "    copts = \(Starlark.list(testableCopts, indent: 4)),\n"
+        let coptsAttribute = compilerOptions.isEmpty
+            ? ""
+            : "    copts = \(Starlark.orderedList(compilerOptions, indent: 4)),\n"
         let dataAttribute = data.isEmpty ? "" : "    data = \(Starlark.list(data.map { $0.localDescription(in: packagePath) }, indent: 4)),\n"
         let linkoptsAttribute = linkopts.isEmpty ? "" : "    linkopts = \(Starlark.orderedList(linkopts, indent: 4)),\n"
         let plugins = pluginDeps.map { $0.localDescription(in: packagePath) }

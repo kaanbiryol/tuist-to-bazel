@@ -50,8 +50,11 @@ struct BazelDependencyResolver {
             }
 
             switch dependency {
-            case let .package(product, kind):
-                if let label = remoteSwiftPackageProductLabelsByProjectPath[target.projectPath]?[product] {
+            case let .package(product, kind, url, _):
+                let label = url.map {
+                    BazelLabel(package: "@\(remoteSwiftPackageRepositoryName(for: $0))", name: product)
+                } ?? remoteSwiftPackageProductLabelsByProjectPath[target.projectPath]?[product]
+                if let label {
                     switch kind {
                     case .runtime:
                         result.codeDeps.append(label)
@@ -228,7 +231,7 @@ struct BazelDependencyResolver {
             targetsByName[name]
         case let .project(target, path, _):
             targetsByPathAndName[Self.indexKey(path: path, name: target)] ?? targetsByName[target]
-        case .xcframework, .package(_, _), .sdk, .xctest, .unsupported:
+        case .xcframework, .package, .sdk, .xctest, .unsupported:
             nil
         }
     }
@@ -246,7 +249,9 @@ struct BazelDependencyResolver {
             condition
         case let .project(_, _, condition):
             condition
-        case .xcframework, .package, .sdk, .xctest, .unsupported:
+        case let .package(_, _, _, condition):
+            condition
+        case .xcframework, .sdk, .xctest, .unsupported:
             nil
         }
     }

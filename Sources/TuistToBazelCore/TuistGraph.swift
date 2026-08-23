@@ -2,7 +2,7 @@ import Foundation
 
 struct TuistGraph {
     let name: String
-    let projects: [TuistProject]
+    var projects: [TuistProject]
     var localSwiftPackagePaths: [String] = []
     var remoteSwiftPackages: [TuistRemoteSwiftPackage] = []
     var remoteSwiftPackagesByProjectPath: [String: [TuistRemoteSwiftPackage]] = [:]
@@ -11,7 +11,7 @@ struct TuistGraph {
 struct TuistProject {
     let name: String
     let path: String
-    let targets: [TuistTarget]
+    var targets: [TuistTarget]
 }
 
 struct TuistRemoteSwiftPackage: Hashable {
@@ -51,11 +51,24 @@ struct TuistTarget {
     let projectPath: String
     let infoPlistPath: String?
     var infoPlistEntries: [String: PlistValue] = [:]
+    let swiftVersion: String?
     let sources: [String]
     var headers: [String] = []
     var coreDataModelPaths: [String] = []
     let resources: [TuistResource]
-    let dependencies: [TuistDependency]
+    var dependencies: [TuistDependency]
+
+    var swiftLanguageMode: String? {
+        guard let swiftVersion, !swiftVersion.isEmpty else { return nil }
+        if swiftVersion == "4.2" {
+            return swiftVersion
+        }
+
+        // Xcode accepts SDK-version-shaped values such as 5.9 and 6.1 for
+        // SWIFT_VERSION, but swiftc's language-mode flag accepts only the major
+        // compatibility version (apart from the distinct Swift 4.2 mode).
+        return swiftVersion.split(separator: ".", maxSplits: 1).first.map(String.init)
+    }
 }
 
 enum PlistValue: Equatable {
@@ -131,7 +144,12 @@ enum TuistDependency {
     case target(name: String, condition: TuistDependencyCondition? = nil)
     case project(target: String, path: String, condition: TuistDependencyCondition? = nil)
     case xcframework(path: String)
-    case package(product: String, kind: PackageDependencyKind = .runtime)
+    case package(
+        product: String,
+        kind: PackageDependencyKind = .runtime,
+        url: String? = nil,
+        condition: TuistDependencyCondition? = nil
+    )
     case sdk(name: String, status: String?)
     case xctest
     case unsupported(String)

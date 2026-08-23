@@ -47,6 +47,7 @@ bazelisk build //...
 
 The CLI writes:
 
+- `.bazelignore` excluding Tuist's downloaded Swift package checkouts from Bazel package discovery
 - `MODULE.bazel`
 - root `BUILD.bazel` with a `rules_xcodeproj` target
 - per-package `BUILD.bazel` files
@@ -166,12 +167,12 @@ bazelisk build //...
 | `staticLibrary` / `dynamicLibrary` | `swift_library` |
 | `macro` | `swift_compiler_plugin` |
 
-Source targets must contain Swift only and generate `swift_library`. Objective-C, C, C++, headers, and mixed-language targets fail conversion with an actionable diagnostic.
+Source targets must contain Swift only and generate `swift_library`. Their base `SWIFT_VERSION` setting is preserved as the corresponding Swift language mode (for example, Xcode's `6.1` value becomes `-swift-version 6`). Objective-C, C, C++, headers, and mixed-language targets fail conversion with an actionable diagnostic.
 
 Dependency generation includes:
 
 - target and project dependencies with iOS and macOS platform conditions
-- remote Swift package products and compiler plugins
+- remote Swift package products and compiler plugins; Tuist checkout projects backed by `Package.resolved` are delegated to `rules_swift_package_manager`
 - SDK frameworks, weak SDK frameworks, SDK libraries, and XCTest
 - direct static or dynamic XCFramework imports
 
@@ -186,14 +187,14 @@ Resource handling includes `apple_resource_group`, `apple_bundle_import` for che
 - Local `Package.swift` translation is unsupported; migrate local packages to Bazel separately.
 - Checked-in `.framework` bundles and `.a` archives are unsupported; package binaries as XCFrameworks.
 - Core Data models and generated entity classes are unsupported.
-- Remote packages whose resolved Tuist targets require Objective-C, C, or C++ are unsupported.
+- Remote package compatibility is bounded by `rules_swift_package_manager`; their downloaded Tuist checkout sources are not translated as local targets. Packages that use deprecated transitive by-name product references may need an [upstream package patch](https://github.com/cgrindel/rules_swift_package_manager/blob/main/docs/faq.md#how-do-i-handle-the-error-unable-to-resolve-byname-reference-xxx-in-swiftpkg_yyy).
 - App Clips, specialized extension products, and targets exclusive to tvOS, watchOS, or visionOS are unsupported. Cross-platform dependencies generate only their iOS or macOS slice.
 - Objective-C, C, C++, headers, and mixed-language targets are unsupported.
 - ODR resource tags are reported as warnings and are not represented in Bazel output.
 - Resource accessor synthesis is intentionally narrow and aimed at common Tuist-generated symbols.
 - Minimum OS versions are currently fixed at iOS 17.0 and macOS 14.0.
 - Command-line tools and Swift package registries are outside the intended migration scope.
-- Arbitrary build settings, scripts, and custom Tuist build rules are not modeled.
+- Apart from the Swift language version and narrow plist/version settings, arbitrary build settings, scripts, and custom Tuist build rules are not modeled.
 - XCTest bundles are generated and built, but simulator execution on Xcode 26.6 is not a CI gate because the test runner pinned by stable rules_apple 4.5.x can hang before launching tests.
 
 ## License

@@ -2,6 +2,22 @@ import XCTest
 @testable import TuistToBazelCore
 
 final class BazelGeneratorTests: XCTestCase {
+    func testIgnoresTuistSwiftPackageCheckouts() throws {
+        let root = URL(fileURLWithPath: "/tmp/TuistPackageCheckoutsFixture")
+        var generator = BazelGenerator(
+            graph: graph(
+                named: "TuistPackageCheckoutsFixture",
+                root: root,
+                targets: [makeTarget("App", product: .app, root: root)]
+            ),
+            paths: PathContext(root: root, output: root)
+        )
+
+        let files = try generator.render().files
+
+        XCTAssertEqual(files[".bazelignore"], "Tuist/.build/checkouts\n")
+    }
+
     func testGeneratesRetainedIOSAndMacOSProducts() throws {
         let root = URL(fileURLWithPath: "/tmp/RetainedProductsFixture")
         let targets = [
@@ -387,8 +403,10 @@ final class BazelGeneratorTests: XCTestCase {
         defer { try? fileManager.removeItem(at: root) }
         let source = root.appendingPathComponent("Sources/Provider.swift")
         let assets = root.appendingPathComponent("Resources/Assets.xcassets/logo.imageset", isDirectory: true)
+        let colors = root.appendingPathComponent("Resources/Assets.xcassets/accent.colorset", isDirectory: true)
         try fileManager.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fileManager.createDirectory(at: assets, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: colors, withIntermediateDirectories: true)
         try "import Foundation\nenum Provider { static let bundle: Bundle = .module }\n".write(
             to: source,
             atomically: true,
@@ -396,6 +414,11 @@ final class BazelGeneratorTests: XCTestCase {
         )
         try #"{"images":[],"info":{"author":"xcode","version":1}}"#.write(
             to: assets.appendingPathComponent("Contents.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try #"{"colors":[],"info":{"author":"xcode","version":1}}"#.write(
+            to: colors.appendingPathComponent("Contents.json"),
             atomically: true,
             encoding: .utf8
         )
@@ -422,6 +445,70 @@ final class BazelGeneratorTests: XCTestCase {
 
         XCTAssertTrue(try XCTUnwrap(rendered["BUILD.bazel"]).contains(".bazel/Generated/FrameworkResourceAccessors.swift"))
         XCTAssertTrue(accessor.contains("static var module: Bundle"))
+        XCTAssertTrue(accessor.contains("public struct FrameworkImageAsset: Sendable"))
+        XCTAssertTrue(accessor.contains("public var image: NSImage"))
+        XCTAssertTrue(accessor.contains("public var swiftUIImage: Image"))
+        XCTAssertTrue(accessor.contains("public struct FrameworkColorAsset: Sendable"))
+        XCTAssertTrue(accessor.contains("public var color: NSColor"))
+        XCTAssertTrue(accessor.contains("public var swiftUIColor: Color"))
+    }
+
+    func testKeepsDynamicFrameworkResourcesOutOfItsBackingLibrary() throws {
+        let root = URL(fileURLWithPath: "/tmp/DynamicFrameworkResourcesFixture")
+        let resource = root.appendingPathComponent("Resources/Localizable.strings").path
+        let target = makeTarget(
+            "Framework",
+            product: .framework,
+            root: root,
+            swiftVersion: "6.1",
+            resources: [TuistResource(path: resource, kind: .file, tags: [])]
+        )
+        var generator = BazelGenerator(
+            graph: graph(named: "DynamicFrameworkResourcesFixture", root: root, targets: [target]),
+            paths: PathContext(root: root, output: root)
+        )
+
+        let build = try XCTUnwrap(try generator.render().files["BUILD.bazel"])
+        let library = try XCTUnwrap(firstRule(named: "FrameworkLib", in: build))
+
+        XCTAssertFalse(library.contains("data ="))
+        XCTAssertTrue(library.contains("\"-swift-version\",\n        \"6\","))
+        XCTAssertTrue(build.contains("resources = [\n        \":_FrameworkResources\","))
+    }
+
+    func testGeneratesDefaultLocalizableStringsAtTopLevel() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-localizable-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let source = root.appendingPathComponent("Sources/Feature.swift")
+        let strings = root.appendingPathComponent("Resources/en.lproj/Localizable.strings")
+        try fileManager.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: strings.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "let title = FrameworkStrings.welcomeTitle\n".write(
+            to: source,
+            atomically: true,
+            encoding: .utf8
+        )
+        try #""welcome.title" = "Welcome";"#.write(to: strings, atomically: true, encoding: .utf8)
+
+        let target = makeTarget(
+            "Framework",
+            product: .framework,
+            root: root,
+            sources: [source.path],
+            resources: [TuistResource(path: strings.path, kind: .file, tags: [])]
+        )
+        var generator = BazelGenerator(
+            graph: graph(named: "LocalizableFixture", root: root, targets: [target]),
+            paths: PathContext(root: root, output: root)
+        )
+        let accessor = try XCTUnwrap(
+            try generator.render().files[".bazel/Generated/FrameworkResourceAccessors.swift"]
+        )
+
+        XCTAssertTrue(accessor.contains("public enum FrameworkStrings {\n    public static var welcomeTitle"))
+        XCTAssertFalse(accessor.contains("public enum Localizable"))
     }
 
     func testGeneratedExtensionInfoPlistInheritsHostVersions() throws {
@@ -467,6 +554,37 @@ final class BazelGeneratorTests: XCTestCase {
         XCTAssertTrue(plist.contains("<key>CFBundleVersion</key>\n\t<string>7</string>"))
         XCTAssertTrue(plist.contains("<key>CFBundleShortVersionString</key>\n\t<string>3.2</string>"))
         XCTAssertTrue(try XCTUnwrap(rendered["BUILD.bazel"]).contains("ios_extension("))
+    }
+
+    func testResolvesBundleIdentifierBuildSettingReferences() throws {
+        let root = URL(fileURLWithPath: "/tmp/BundleIdentifierFixture")
+        let app = makeTarget(
+            "App",
+            product: .app,
+            root: root,
+            bundleId: "$(PRODUCT_BUNDLE_IDENTIFIER)",
+            dependencies: [.target(name: "Widget")]
+        )
+        let widget = makeTarget(
+            "Widget",
+            product: .appExtension,
+            root: root,
+            bundleId: "$(PRODUCT_BUNDLE_IDENTIFIER).widget"
+        )
+        var generator = BazelGenerator(
+            graph: graph(named: "BundleIdentifierFixture", root: root, targets: [app, widget]),
+            paths: PathContext(root: root, output: root)
+        )
+
+        let rendered = try generator.render().files
+        let build = try XCTUnwrap(rendered["BUILD.bazel"])
+        let appPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/App-Info.plist"])
+        let widgetPlist = try XCTUnwrap(rendered[".bazel/InfoPlists/Widget-Info.plist"])
+
+        XCTAssertTrue(build.contains("ios_application(\n    name = \"App\",\n    bundle_id = \"dev.tuist.App\""))
+        XCTAssertTrue(build.contains("ios_extension(\n    name = \"Widget\",\n    bundle_id = \"dev.tuist.App.widget\""))
+        XCTAssertTrue(appPlist.contains("<string>dev.tuist.App</string>"))
+        XCTAssertTrue(widgetPlist.contains("<string>dev.tuist.App.widget</string>"))
     }
 
     func testRejectsRemovedFeaturesBeforeRendering() throws {
@@ -540,6 +658,7 @@ final class BazelGeneratorTests: XCTestCase {
         bundleId: String? = nil,
         infoPlistPath: String? = nil,
         infoPlistEntries: [String: PlistValue] = [:],
+        swiftVersion: String? = nil,
         sources: [String]? = nil,
         headers: [String] = [],
         coreDataModelPaths: [String] = [],
@@ -555,6 +674,7 @@ final class BazelGeneratorTests: XCTestCase {
             projectPath: root.path,
             infoPlistPath: infoPlistPath,
             infoPlistEntries: infoPlistEntries,
+            swiftVersion: swiftVersion,
             sources: sources ?? [root.appendingPathComponent("Sources/\(name).swift").path],
             headers: headers,
             coreDataModelPaths: coreDataModelPaths,

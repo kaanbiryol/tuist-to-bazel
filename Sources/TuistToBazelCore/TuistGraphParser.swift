@@ -91,6 +91,7 @@ struct TuistGraphParser {
             projectPath: projectPath,
             infoPlistPath: parseInfoPlist(object["infoPlist"]),
             infoPlistEntries: settingsInfoPlistEntries.merging(explicitInfoPlistEntries) { _, explicit in explicit },
+            swiftVersion: object["settings"]?["base"]?["SWIFT_VERSION"]?["string"]?["_0"]?.stringValue,
             sources: orderedUnique(parsePathArray(object["sources"]) + buildableFolderFiles.filter(isBuildableSource)),
             headers: parseHeaders(object["headers"]),
             coreDataModelPaths: parseCoreDataModelPaths(object["coreDataModels"]),
@@ -385,7 +386,11 @@ struct TuistGraphParser {
             if let package = element["package"]?.objectValue, let product = package["product"]?.stringValue {
                 let rawType = package["type"]?.stringValue ?? ""
                 let kind: PackageDependencyKind = rawType.contains("plugin") ? .plugin : .runtime
-                return .package(product: product, kind: kind)
+                return .package(
+                    product: product,
+                    kind: kind,
+                    condition: parseDependencyCondition(package["condition"])
+                )
             }
             if let sdk = element["sdk"]?.objectValue, let name = sdk["name"]?.stringValue {
                 return .sdk(name: name, status: sdk["status"]?.stringValue)

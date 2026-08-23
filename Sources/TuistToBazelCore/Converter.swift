@@ -5,7 +5,8 @@ public struct Converter {
 
     public func convert(_ input: ConversionInput) throws -> ConversionResult {
         let data = try Data(contentsOf: input.graphPath)
-        let graph = try TuistGraphParser().parse(data: data)
+        var graph = try TuistGraphParser().parse(data: data)
+        try graph.routeExternalSwiftPackageProjects(rootPath: input.rootPath)
         let paths = PathContext(root: input.rootPath, output: input.outputPath)
         var generator = BazelGenerator(graph: graph, paths: paths)
         let rendered = try generator.render()

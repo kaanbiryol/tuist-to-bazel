@@ -3,6 +3,91 @@ import XCTest
 @testable import TuistToBazelCore
 
 final class ConverterTests: XCTestCase {
+    func testRoutesTuistSwiftPackageCheckoutsThroughRulesSwiftPackageManager() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("tuist-to-bazel-external-package-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let appSources = root.appendingPathComponent("Sources", isDirectory: true)
+        let checkout = root.appendingPathComponent("Tuist/.build/checkouts/Alamofire", isDirectory: true)
+        let packageSources = checkout.appendingPathComponent("Source", isDirectory: true)
+        try fileManager.createDirectory(at: appSources, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: packageSources, withIntermediateDirectories: true)
+
+        let appSource = appSources.appendingPathComponent("App.swift")
+        let packageSource = packageSources.appendingPathComponent("Legacy.m")
+        try "import Alamofire\n".write(to: appSource, atomically: true, encoding: .utf8)
+        try "void legacy(void) {}\n".write(to: packageSource, atomically: true, encoding: .utf8)
+        try """
+        {
+          "pins": [
+            {
+              "identity": "alamofire",
+              "kind": "remoteSourceControl",
+              "location": "https://github.com/Alamofire/Alamofire.git",
+              "state": { "revision": "abc123", "version": "5.10.1" }
+            }
+          ],
+          "version": 2
+        }
+        """.write(
+            to: root.appendingPathComponent("Tuist/Package.resolved"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let appTarget: [String: Any] = [
+            "product": "app",
+            "bundleId": "dev.tuist.App",
+            "productName": "App",
+            "sources": [["path": appSource.path]],
+            "resources": ["resources": [Any]()],
+            "dependencies": [
+                ["project": ["target": "Alamofire", "path": checkout.path]],
+            ],
+        ]
+        let packageTarget: [String: Any] = [
+            "product": "staticFramework",
+            "productName": "Alamofire",
+            "sources": [["path": packageSource.path]],
+            "resources": ["resources": [Any]()],
+            "dependencies": [Any](),
+        ]
+        let graphObject: [String: Any] = [
+            "name": "Fixture",
+            "projects": [
+                root.path: ["name": "Fixture", "targets": ["App": appTarget]],
+                checkout.path: ["name": "Alamofire", "targets": ["Alamofire": packageTarget]],
+            ],
+            "packages": [Any](),
+        ]
+        let graph = root.appendingPathComponent("graph.json")
+        try JSONSerialization.data(withJSONObject: graphObject, options: [.prettyPrinted]).write(to: graph)
+
+        let result = try Converter().convert(
+            ConversionInput(graphPath: graph, rootPath: root, outputPath: root, force: true)
+        )
+        let build = try String(contentsOf: root.appendingPathComponent("BUILD.bazel"), encoding: .utf8)
+        let packageManifest = try String(
+            contentsOf: root.appendingPathComponent(".bazel/SwiftPackages/Package.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(build.contains("@swiftpkg_alamofire//:Alamofire"))
+        XCTAssertFalse(build.contains("Tuist/.build/checkouts/Alamofire"))
+        XCTAssertTrue(
+            packageManifest.contains(
+                ".package(url: \"https://github.com/Alamofire/Alamofire.git\", .exact(\"5.10.1\"))"
+            )
+        )
+        XCTAssertFalse(result.writtenFiles.contains(checkout.appendingPathComponent("BUILD.bazel")))
+        XCTAssertEqual(
+            try String(contentsOf: root.appendingPathComponent(".bazelignore"), encoding: .utf8),
+            "Tuist/.build/checkouts\n"
+        )
+    }
+
     func testPreflightsAllOutputConflictsBeforeWriting() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

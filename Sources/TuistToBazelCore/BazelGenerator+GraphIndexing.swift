@@ -102,7 +102,7 @@ extension BazelGenerator {
                 project.targets
                     .flatMap(\.dependencies)
                     .compactMap { dependency -> String? in
-                        guard case let .package(product, _) = dependency else {
+                        guard case let .package(product, _, _, _) = dependency else {
                             return nil
                         }
                         return product

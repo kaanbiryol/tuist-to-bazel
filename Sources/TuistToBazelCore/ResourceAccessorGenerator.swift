@@ -37,6 +37,11 @@ struct ResourceAccessorGenerator {
             import Foundation
             #if canImport(UIKit)
             import UIKit
+            #elseif canImport(AppKit)
+            import AppKit
+            #endif
+            #if canImport(SwiftUI)
+            import SwiftUI
             #endif
             """,
             renderBundleAccessor(
@@ -136,20 +141,44 @@ struct ResourceAccessorGenerator {
 
         var blocks = [
             """
-            public struct \(moduleName)ImageAsset {
+            public struct \(moduleName)ImageAsset: Sendable {
                 public let name: String
 
+                #if canImport(UIKit)
                 public var image: UIImage {
                     UIImage(named: name, in: \(bundleEnumName).bundle, compatibleWith: nil) ?? UIImage()
                 }
+                #elseif canImport(AppKit)
+                public var image: NSImage {
+                    \(bundleEnumName).bundle.image(forResource: NSImage.Name(name)) ?? NSImage()
+                }
+                #endif
+
+                #if canImport(SwiftUI)
+                public var swiftUIImage: Image {
+                    Image(name, bundle: \(bundleEnumName).bundle)
+                }
+                #endif
             }
 
-            public struct \(moduleName)ColorAsset {
+            public struct \(moduleName)ColorAsset: Sendable {
                 public let name: String
 
+                #if canImport(UIKit)
                 public var color: UIColor {
                     UIColor(named: name, in: \(bundleEnumName).bundle, compatibleWith: nil) ?? UIColor.clear
                 }
+                #elseif canImport(AppKit)
+                public var color: NSColor {
+                    NSColor(named: NSColor.Name(name), bundle: \(bundleEnumName).bundle) ?? NSColor.clear
+                }
+                #endif
+
+                #if canImport(SwiftUI)
+                public var swiftUIColor: Color {
+                    Color(name, bundle: \(bundleEnumName).bundle)
+                }
+                #endif
             }
             """,
         ]
@@ -178,6 +207,7 @@ struct ResourceAccessorGenerator {
             Set(tables.flatMap(\.keys))
         }
         let tableNames = Set(stringKeysByTable.keys).union(stringDictKeysByTable.keys)
+        var defaultTableMembers: [String] = []
         var tableBlocks: [String] = []
 
         for tableName in tableNames.sorted() {
@@ -200,18 +230,22 @@ struct ResourceAccessorGenerator {
                     }
                 """
             })
-            tableBlocks.append(
-                """
-                public enum \(typeName) {
-                \(members.joined(separator: "\n\n"))
-                }
-                """
-            )
+            if tableName == "Localizable" {
+                defaultTableMembers.append(contentsOf: members)
+            } else {
+                tableBlocks.append(
+                    """
+                    public enum \(typeName) {
+                    \(members.joined(separator: "\n\n"))
+                    }
+                    """
+                )
+            }
         }
 
         return """
         public enum \(moduleName)Strings {
-        \(tableBlocks.joined(separator: "\n\n"))
+        \((defaultTableMembers + tableBlocks).joined(separator: "\n\n"))
         }
         """
     }

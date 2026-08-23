@@ -149,7 +149,7 @@ final class TuistGraphParserTests: XCTestCase {
         let graph = try TuistGraphParser().parse(data: Data(json.utf8))
         let dependency = try XCTUnwrap(graph.projects.first?.targets.first?.dependencies.first)
 
-        guard case let .package(product, kind) = dependency else {
+        guard case let .package(product, kind, _, _) = dependency else {
             return XCTFail("expected package dependency")
         }
         XCTAssertEqual(product, "SwiftLint")
@@ -227,6 +227,7 @@ final class TuistGraphParserTests: XCTestCase {
                     "base": {
                       "CURRENT_PROJECT_VERSION": { "string": { "_0": "1.0" } },
                       "MARKETING_VERSION": { "string": { "_0": "2.0" } },
+                      "SWIFT_VERSION": { "string": { "_0": "6.1" } },
                       "INFOPLIST_KEY_WKCompanionAppBundleIdentifier": { "string": { "_0": "dev.tuist.App" } },
                       "INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp": { "string": { "_0": "NO" } },
                       "INFOPLIST_KEY_UISupportedInterfaceOrientations": {
@@ -248,7 +249,9 @@ final class TuistGraphParserTests: XCTestCase {
 
         let graph = try TuistGraphParser().parse(data: Data(json.utf8))
         let entries = try XCTUnwrap(graph.projects.first?.targets.first?.infoPlistEntries)
+        let swiftVersion = try XCTUnwrap(graph.projects.first?.targets.first?.swiftVersion)
 
+        XCTAssertEqual(swiftVersion, "6.1")
         XCTAssertEqual(entries["CFBundleVersion"], .string("1.0"))
         XCTAssertEqual(entries["CFBundleShortVersionString"], .string("2.0"))
         XCTAssertEqual(entries["WKCompanionAppBundleIdentifier"], .string("dev.tuist.App"))

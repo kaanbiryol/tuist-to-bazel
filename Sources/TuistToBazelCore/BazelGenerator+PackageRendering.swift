@@ -111,7 +111,7 @@ extension BazelGenerator {
                     if binaryImportPackage(for: path, consumingPackage: pair.packagePath) == packagePath {
                         appleImportRules.insert(try xcframeworkImport(for: path).ruleName)
                     }
-                case .target, .project, .package(_, _), .sdk, .xctest, .unsupported:
+                case .target, .project, .package, .sdk, .xctest, .unsupported:
                     break
                 }
             }

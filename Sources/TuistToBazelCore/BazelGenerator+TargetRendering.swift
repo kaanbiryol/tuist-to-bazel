@@ -48,7 +48,7 @@ extension BazelGenerator {
             """
             \(ruleName)(
                 name = "\(target.name)",
-                bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+                bundle_id = "\(resolvedBundleId(for: target))",
             \(families)\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
                 deps = [":\(libraryName(for: target))"],
             \(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("extensions", deps.extensionDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
@@ -65,7 +65,7 @@ extension BazelGenerator {
             """
             ios_extension(
                 name = "\(target.name)",
-                bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+                bundle_id = "\(resolvedBundleId(for: target))",
             \(familiesAttribute(for: .ios, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: .ios))",
                 deps = [":\(libraryName(for: target))"],
             \(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))\(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
@@ -94,7 +94,7 @@ extension BazelGenerator {
             """
             ios_framework(
                 name = "\(target.name)",
-            \(bundleNameAttribute(target, indent: 4))    bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+            \(bundleNameAttribute(target, indent: 4))    bundle_id = "\(resolvedBundleId(for: target))",
                 families = ["iphone", "ipad"],
             \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
             \(productDeps)\(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))
@@ -115,7 +115,7 @@ extension BazelGenerator {
             """
             macos_framework(
                 name = "\(target.name)",
-            \(bundleNameAttribute(target, indent: 4))    bundle_id = "\(target.bundleId ?? defaultBundleId(for: target))",
+            \(bundleNameAttribute(target, indent: 4))    bundle_id = "\(resolvedBundleId(for: target))",
             \(extensionSafeAttribute(target, indent: 4))\(infoplistsAttribute(target, packagePath: packagePath, indent: 4))    minimum_os_version = "\(minimumOSVersion(for: platform))",
             \(productDeps)\(optionalLabelListAttribute("frameworks", deps.frameworkDeps, packagePath: packagePath, indent: 4))
             \(optionalLabelListAttribute("resources", deps.resourceDeps + resourceGroupLabelIfNeeded(target, packagePath: packagePath), packagePath: packagePath, indent: 4)))
@@ -199,7 +199,7 @@ extension BazelGenerator {
         var lines = [
             "\(ruleName)(",
             "    name = \"\(target.name)\",",
-            "    bundle_id = \"\(target.bundleId ?? defaultBundleId(for: target))\",",
+            "    bundle_id = \"\(resolvedBundleId(for: target))\",",
         ]
         if let infoPlistPath = target.infoPlistPath,
            let relative = try? paths.pathRelativeToPackage(infoPlistPath, packagePath: packagePath) {
@@ -236,7 +236,7 @@ extension BazelGenerator {
         var lines = [
             "\(ruleName)(",
             "    name = \"\(target.name)\",",
-            "    bundle_id = \"\(target.bundleId ?? defaultBundleId(for: target))\",",
+            "    bundle_id = \"\(resolvedBundleId(for: target))\",",
         ]
         if let infoPlistPath = target.infoPlistPath,
            let relative = try? paths.pathRelativeToPackage(infoPlistPath, packagePath: packagePath) {
@@ -260,6 +260,10 @@ extension BazelGenerator {
     mutating func renderCompilerPlugin(_ target: TuistTarget, packagePath: String) throws -> String {
         let deps = try resolvedDependencies(for: target, packagePath: packagePath)
         let srcs = try sourceLabels(for: target, packagePath: packagePath)
+        let compilerOptions = target.swiftLanguageMode.map { ["-swift-version", $0] } ?? []
+        let coptsAttribute = compilerOptions.isEmpty
+            ? ""
+            : "    copts = \(Starlark.orderedList(compilerOptions, indent: 4)),\n"
         let tagsAttribute = "    tags = [\"manual\"],\n"
         let pluginsAttribute = deps.pluginDeps.isEmpty ? "" : "    plugins = \(Starlark.list(deps.pluginDeps.map { $0.localDescription(in: packagePath) }, indent: 4)),\n"
 
@@ -267,7 +271,7 @@ extension BazelGenerator {
         swift_compiler_plugin(
             name = "\(target.name)",
             srcs = \(Starlark.list(srcs, indent: 4)),
-            module_name = "\(sanitizedModuleName(target.productName))",
+        \(coptsAttribute)    module_name = "\(sanitizedModuleName(target.productName))",
         \(pluginsAttribute)\(tagsAttribute)    deps = \(Starlark.list(deps.codeDeps.map { $0.localDescription(in: packagePath) }, indent: 4)),
         )
         """

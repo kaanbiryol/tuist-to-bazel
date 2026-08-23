@@ -65,7 +65,7 @@ extension BazelGenerator {
         var dictionary: [String: Any] = [
             "CFBundleDevelopmentRegion": "en",
             "CFBundleExecutable": target.productName,
-            "CFBundleIdentifier": target.bundleId ?? defaultBundleId(for: target),
+            "CFBundleIdentifier": resolvedBundleId(for: target),
             "CFBundleName": target.productName,
             "CFBundlePackageType": packageType(for: target.product),
             "CFBundleShortVersionString": "1.0",
@@ -194,7 +194,7 @@ extension BazelGenerator {
             "$(MARKETING_VERSION)": "1.0",
             "$(DEVELOPMENT_LANGUAGE)": "en",
             "$(EXECUTABLE_NAME)": target.productName,
-            "$(PRODUCT_BUNDLE_IDENTIFIER)": target.bundleId ?? defaultBundleId(for: target),
+            "$(PRODUCT_BUNDLE_IDENTIFIER)": resolvedBundleId(for: target),
             "$(PRODUCT_MODULE_NAME)": sanitizedModuleName(target.productName),
             "$(PRODUCT_NAME)": target.productName,
             "$(TARGET_NAME)": target.name,
@@ -203,5 +203,21 @@ extension BazelGenerator {
 
     func defaultBundleId(for target: TuistTarget) -> String {
         BazelDependencyResolver.defaultBundleId(for: target)
+    }
+
+    func resolvedBundleId(for target: TuistTarget) -> String {
+        let settingReference = "$(PRODUCT_BUNDLE_IDENTIFIER)"
+        let configured = target.bundleId ?? defaultBundleId(for: target)
+        guard configured.contains(settingReference) else {
+            return configured
+        }
+
+        let baseBundleId: String
+        if isExtensionProduct(target.product), let host = extensionHostApp(for: target) {
+            baseBundleId = resolvedBundleId(for: host)
+        } else {
+            baseBundleId = defaultBundleId(for: target)
+        }
+        return configured.replacingOccurrences(of: settingReference, with: baseBundleId)
     }
 }

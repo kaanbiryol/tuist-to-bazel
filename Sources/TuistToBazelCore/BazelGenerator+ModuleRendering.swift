@@ -118,18 +118,6 @@ extension BazelGenerator {
         return String(data: normalizedData, encoding: .utf8) ?? content
     }
 
-    func remoteSwiftPackageRepositoryName(for url: String) -> String {
-        let trimmed = url.hasSuffix(".git") ? String(url.dropLast(4)) : url
-        let lastComponent = URL(string: trimmed)?.lastPathComponent
-            ?? trimmed.split(separator: "/").last.map(String.init)
-            ?? trimmed
-        return "swiftpkg_\(packageIdentityName(for: lastComponent))"
-    }
-
-    func packageIdentityName(for value: String) -> String {
-        sanitizedModuleName(value.lowercased())
-    }
-
     func allRemoteSwiftPackages() -> [TuistRemoteSwiftPackage] {
         var seen: Set<TuistRemoteSwiftPackage> = []
         return graph.remoteSwiftPackages

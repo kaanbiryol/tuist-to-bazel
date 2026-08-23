@@ -25,6 +25,7 @@ struct BazelGenerator {
         try indexRemoteSwiftPackages()
         try renderRemoteSwiftPackageSupportFiles()
         var files: [String: String] = [:]
+        files[".bazelignore"] = "Tuist/.build/checkouts\n"
         files["MODULE.bazel"] = renderModule()
         let rootXcodeproj = try renderRootXcodeproj()
 
